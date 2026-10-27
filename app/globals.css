@@ -153,6 +153,18 @@
   }
 }
 
+.reports-layout > section:first-child {
+  position: relative;
+}
+
+@media (min-width: 640px) {
+  .reports-layout > section:first-child > div:nth-child(2) {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.5rem;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

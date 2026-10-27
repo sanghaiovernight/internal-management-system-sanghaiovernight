@@ -159,7 +159,7 @@ export function PosDashboard() {
         </div>}
 
         {activeTab === 'inventory' && <InventoryView />}
-        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0"><ReportAlerts transactions={transactions} /><ReportsView transactions={transactions} /><BestSellerTable transactions={transactions} /></div><TransactionHistory transactions={transactions} /></div>}
+        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView transactions={transactions} /><ReportAlerts transactions={transactions} /><BestSellerTable transactions={transactions} /></div><TransactionHistory transactions={transactions} /></div>}
       </div>
 
       {paymentOpen && <PaymentModal subtotal={subtotal} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}

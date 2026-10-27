@@ -10,7 +10,7 @@ type CartLine = Product & { quantity: number }
 type Transaction = { code: string; dateTime: string; items: string; total: number; method: string; soldItems: { name: string; quantity: number }[] }
 
 const products: Product[] = [
-  { id: 'redbull', name: 'Bò húc', category: 'retail', price: 15000, stock: 24, accent: 'bg-[#e8f3ff] text-[#1769aa]', tag: 'Nước tăng lực' },
+  { id: 'redbull', name: 'Bò húc', category: 'retail', price: 15000, stock: 24, accent: 'bg-[#e8f3ff] text-[#1769aa]', tag: 'Kho còn: 24' },
   { id: 'aquafina', name: 'Aquafina', category: 'retail', price: 10000, stock: 8, accent: 'bg-[#e8f8f0] text-[#147a55]', tag: 'Nước suối' },
   { id: 'coke', name: 'Coca Cola', category: 'retail', price: 12000, stock: 37, accent: 'bg-[#fff0ef] text-[#bd332c]', tag: 'Nước ngọt' },
   { id: 'milo', name: 'Milo hộp', category: 'retail', price: 12000, stock: 15, accent: 'bg-[#fff5e4] text-[#a8650b]', tag: 'Sữa & cacao' },

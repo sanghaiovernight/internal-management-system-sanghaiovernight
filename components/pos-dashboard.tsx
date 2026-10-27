@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { Minus, Plus, Search, ShoppingBag, Package, BarChart3, BarChartBig, PieChart, CreditCard, Banknote, Trash2, X, ChevronDown, ReceiptText, AlertTriangle, CircleDollarSign, Users, TrendingUp } from 'lucide-react'
+import { Minus, Plus, Search, ShoppingBag, Package, BarChart3, BarChartBig, PieChart, CreditCard, Banknote, Trash2, X, ChevronDown, ReceiptText, AlertTriangle, CircleDollarSign, Users, TrendingUp, Pencil } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { getSupabaseClient } from '@/lib/supabase/client'
@@ -100,22 +100,23 @@ export function PosDashboard() {
   const [revenue, setRevenue] = useState(12845000)
   const [bills, setBills] = useState(342)
   const [orderNote, setOrderNote] = useState('')
+  const [inventoryProducts, setInventoryProducts] = useState<Product[]>(products)
   const [transactions, setTransactions] = useState<Transaction[]>([
     { code: 'HD0342', dateTime: '27/10/2026 21:42', items: 'Mì cay hải sản, Aquafina × 2', total: 59000, method: 'Tiền mặt', soldItems: [{ name: 'Mì cay hải sản', quantity: 1 }, { name: 'Aquafina', quantity: 2 }] },
     { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản', soldItems: [{ name: 'Cơm gà xối mỡ', quantity: 1 }, { name: 'Coca Cola', quantity: 1 }] },
     { code: 'HD0340', dateTime: '27/10/2026 20:56', items: 'Trà đào cam sả', total: 29000, method: 'Tiền mặt', soldItems: [{ name: 'Trà đào cam sả', quantity: 1 }] },
   ])
-  const supabase = typeof window === 'undefined' ? null : getSupabaseClient()
+  const supabase = getSupabaseClient()
+  const db = supabase as any
   useEffect(() => {
-  if (!supabase) return
-  void supabase.from('pos_products').upsert(products.map(({ id, name, category, price, stock, accent, tag }) => ({ id, name, category, price, stock: stock ?? 20, accent, tag })))
+  void db.from('pos_products').upsert(products.map(({ id, name, category, price, stock, accent, tag }) => ({ id, name, category, price, stock: stock ?? 20, accent, tag })))
   }, [supabase])
   
-  const { data: persistedState } = useSWR('pos-state', async () => {
+  const { data: persistedState } = useSWR<{ savedCart: { product_id: string; quantity: number }[]; savedTransactions: { code: string; date_time: string; total: number; method: string; items: string; sold_items: { name: string; quantity: number }[] }[] }>('pos-state', async () => {
   if (!supabase) return { savedCart: [], savedTransactions: [] }
   const [{ data: savedCart }, { data: savedTransactions }] = await Promise.all([
-  supabase.from('pos_cart_lines').select('product_id, quantity'),
-  supabase.from('pos_transactions').select('code, date_time, total, method, items, sold_items').order('date_time', { ascending: false }).limit(100),
+  db.from('pos_cart_lines').select('product_id, quantity'),
+  db.from('pos_transactions').select('code, date_time, total, method, items, sold_items').order('date_time', { ascending: false }).limit(100),
   ])
   return { savedCart: savedCart ?? [], savedTransactions: savedTransactions ?? [] }
   })
@@ -140,8 +141,8 @@ export function PosDashboard() {
   }, [persistedState])
 
   useEffect(() => {
-    void supabase.from('pos_cart_lines').delete().neq('product_id', '')
-    if (cart.length) void supabase.from('pos_cart_lines').upsert(cart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
+    void db.from('pos_cart_lines').delete().neq('product_id', '')
+    if (cart.length) void db.from('pos_cart_lines').upsert(cart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
   }, [cart, supabase])
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.price * line.quantity, 0), [cart])
@@ -175,7 +176,7 @@ export function PosDashboard() {
       soldItems: cart.map((line) => ({ name: line.name, quantity: line.quantity })),
     }
     setTransactions((current) => [transaction, ...current])
-    void supabase.from('pos_transactions').upsert({
+    void db.from('pos_transactions').upsert({
       code: transaction.code,
       date_time: new Date().toISOString(),
       total: transaction.total,
@@ -207,7 +208,7 @@ export function PosDashboard() {
           <CartPanel cart={cart} subtotal={subtotal} note={orderNote} setNote={setOrderNote} updateQuantity={updateQuantity} onCheckout={() => cart.length > 0 && setPaymentOpen(true)} />
         </div>}
 
-        {activeTab === 'inventory' && <InventoryView />}
+        {activeTab === 'inventory' && <InventoryManager products={inventoryProducts} onChange={setInventoryProducts} />}
         {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView transactions={transactions} /><ReportAlerts transactions={transactions} /><BestSellerTable transactions={transactions} /></div><TransactionHistory transactions={transactions} /></div>}
       </div>
 
@@ -221,6 +222,45 @@ function CartPanel({ cart, subtotal, note, setNote, updateQuantity, onCheckout }
 }
 
 function InventoryView() { const inventory = products.map((product, index) => ({ ...product, stock: product.stock ?? [18, 12, 9, 24][index % 4], batches: [{ code: `LO-${String(index + 1).padStart(3, '0')}`, quantity: Math.max(3, (product.stock ?? 12) - 4), received: '27/10/2026', expiry: product.category === 'recipe' ? 'Trong ngày' : '02/2027' }, { code: `LO-${String(index + 11).padStart(3, '0')}`, quantity: 4, received: '20/10/2026', expiry: product.category === 'recipe' ? 'Trong ngày' : '01/2027' }] })); return <section><div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm text-[#89939b]">Quản lý tất cả mặt hàng theo lô nhập</p><h1 className="text-2xl font-bold tracking-tight">Kho hàng & FIFO</h1></div><button className="rounded-xl bg-[#0d7655] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#095c43]">+ Nhập hàng mới</button></div><div className="mb-5 rounded-2xl border border-[#dcece5] bg-[#f4faf7] p-4"><p className="text-sm font-bold text-[#0d7655]">Nguyên tắc FIFO đang bật</p><p className="mt-1 text-xs text-[#5f7b6e]">Hệ thống sẽ ưu tiên xuất các lô nhập sớm nhất trước, giúp hạn chế hàng cũ tồn kho.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{inventory.map((product) => <div key={product.id} className="rounded-2xl border border-[#e7ebed] bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#a5cebe] hover:shadow-md"><div className="flex items-start justify-between"><div className={`grid size-12 place-items-center rounded-xl text-sm font-black ${product.accent}`}>{product.name.slice(0, 2).toUpperCase()}</div>{product.stock < 10 && <span className="flex items-center gap-1 rounded-full bg-[#fff0ef] px-2 py-1 text-[11px] font-bold text-[#c03b34]"><AlertTriangle /> Sắp hết</span>}</div><div className="mt-4 flex items-start justify-between"><div><p className="font-bold">{product.name}</p><p className="mt-1 text-xs text-[#929ba2]">{product.tag}</p></div><span className="text-2xl font-black">{product.stock}</span></div><p className="mt-1 text-right text-[10px] text-[#929ba2]">đơn vị tồn kho</p><div className="mt-4 overflow-hidden rounded-xl border border-[#edf0f1]"><div className="grid grid-cols-[1fr_auto] bg-[#fafbfb] px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-[#89939b]"><span>Lô nhập · xuất trước</span><span>Số lượng</span></div>{product.batches.map((batch) => <div key={batch.code} className="grid grid-cols-[1fr_auto] gap-3 border-t border-[#edf0f1] px-3 py-2.5 text-xs"><div><p className="font-semibold">{batch.code}</p><p className="mt-0.5 text-[10px] text-[#929ba2]">Nhập {batch.received} · HSD {batch.expiry}</p></div><span className="font-bold text-[#0d7655]">{batch.quantity}</span></div>)}</div></div>)}</div></section> }
+
+function InventoryManager({ products: allProducts, onChange }: { products: Product[]; onChange: (products: Product[]) => void }) {
+  const retailProducts = allProducts.filter((product) => product.category === 'retail')
+  const [receivingOpen, setReceivingOpen] = useState(false)
+  const [editing, setEditing] = useState<Product | null>(null)
+  const [selectedId, setSelectedId] = useState(retailProducts[0]?.id ?? '')
+  const [quantity, setQuantity] = useState('1')
+  const [batchCode, setBatchCode] = useState('')
+  const [expiry, setExpiry] = useState('')
+  const [editName, setEditName] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editStock, setEditStock] = useState('')
+
+  const persist = (product: Product) => {
+    const db = getSupabaseClient() as any
+    void db.from('pos_products').upsert({ id: product.id, name: product.name, category: product.category, price: product.price, stock: product.stock ?? 0, accent: product.accent, tag: product.tag })
+  }
+  const receive = () => {
+    const amount = Math.max(0, Number(quantity) || 0)
+    if (!selectedId || amount === 0) return
+    const updated = retailProducts.find((product) => product.id === selectedId)
+    if (!updated) return
+    const next = { ...updated, stock: (updated.stock ?? 0) + amount, tag: `Kho còn: ${(updated.stock ?? 0) + amount}` }
+    onChange(allProducts.map((product) => product.id === next.id ? next : product))
+    persist(next)
+    setReceivingOpen(false)
+    setQuantity('1')
+    setBatchCode('')
+    setExpiry('')
+  }
+  const saveEdit = () => {
+    if (!editing || !editName.trim()) return
+    const next = { ...editing, name: editName.trim(), price: Math.max(0, Number(editPrice) || 0), stock: Math.max(0, Number(editStock) || 0), tag: `Kho còn: ${Math.max(0, Number(editStock) || 0)}` }
+    onChange(allProducts.map((product) => product.id === next.id ? next : product))
+    persist(next)
+    setEditing(null)
+  }
+  return <section><div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm text-[#89939b]">Chỉ quản lý hàng Retail theo lô nhập</p><h1 className="text-2xl font-bold tracking-tight">Kho hàng & FIFO</h1></div><button onClick={() => setReceivingOpen(true)} className="rounded-xl bg-[#0d7655] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#095c43]">+ Nhập hàng mới</button></div><div className="mb-5 rounded-2xl border border-[#dcece5] bg-[#f4faf7] p-4"><p className="text-sm font-bold text-[#0d7655]">Nguyên tắc FIFO đang bật</p><p className="mt-1 text-xs text-[#5f7b6e]">Hệ thống ưu tiên xuất các lô nhập sớm nhất trước.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{retailProducts.map((product) => <div key={product.id} className="rounded-2xl border border-[#e7ebed] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-start justify-between"><div className={`grid size-12 place-items-center rounded-xl text-sm font-black ${product.accent}`}>{product.name.slice(0, 2).toUpperCase()}</div><div className="flex items-center gap-2">{(product.stock ?? 0) < 10 && <span className="rounded-full bg-[#fff0ef] px-2 py-1 text-[11px] font-bold text-[#c03b34]">Sắp hết</span>}<button aria-label={`Sửa ${product.name}`} onClick={() => { setEditing(product); setEditName(product.name); setEditPrice(String(product.price)); setEditStock(String(product.stock ?? 0)) }} className="grid size-8 place-items-center rounded-lg text-[#7d8790] hover:bg-[#edf7f3] hover:text-[#0d7655]"><Pencil /></button></div></div><p className="mt-4 font-bold">{product.name}</p><p className="mt-1 text-xs text-[#929ba2]">Kho còn: {product.stock ?? 0}</p><p className="mt-3 text-lg font-black text-[#0d7655]">{money(product.price)}</p></div>)}</div>{receivingOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-[#16202a]/45 p-4 backdrop-blur-sm"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-bold">Nhập hàng mới</h2><button aria-label="Đóng" onClick={() => setReceivingOpen(false)}><X /></button></div><div className="flex flex-col gap-4"><label className="text-sm font-semibold">Mặt hàng<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] bg-white px-3">{retailProducts.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label className="text-sm font-semibold">Số lượng nhập<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><label className="text-sm font-semibold">Mã lô<input value={batchCode} onChange={(event) => setBatchCode(event.target.value)} placeholder="VD: LO-001" className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><label className="text-sm font-semibold">HSD<input type="date" value={expiry} onChange={(event) => setExpiry(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><button onClick={receive} className="rounded-xl bg-[#0d7655] py-3 font-bold text-white">Xác nhận</button></div></div></div>}{editing && <div className="fixed inset-0 z-50 grid place-items-center bg-[#16202a]/45 p-4 backdrop-blur-sm"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-bold">Chỉnh sửa hàng hóa</h2><button aria-label="Đóng" onClick={() => setEditing(null)}><X /></button></div><div className="flex flex-col gap-4"><label className="text-sm font-semibold">Tên sản phẩm<input value={editName} onChange={(event) => setEditName(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><label className="text-sm font-semibold">Giá bán<input type="number" min="0" value={editPrice} onChange={(event) => setEditPrice(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><label className="text-sm font-semibold">Tồn kho<input type="number" min="0" value={editStock} onChange={(event) => setEditStock(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#e1e6e9] px-3" /></label><button onClick={saveEdit} className="rounded-xl bg-[#0d7655] py-3 font-bold text-white">Lưu thay đổi</button></div></div></div>}</section>
+}
 
 function ProductDetailModal({ product, onClose }: { product: Product & { stock: number; batches: { code: string; quantity: number; received: string; expiry: string }[] }; onClose: () => void }) { return <div className="fixed inset-0 z-50 grid place-items-center bg-[#16202a]/45 p-4 backdrop-blur-sm"><div role="dialog" aria-modal="true" aria-labelledby="product-detail-title" className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-[#edf0f1] p-5"><div><p className="text-xs font-semibold uppercase tracking-widest text-[#0d7655]">Chi tiết hàng hóa</p><h2 id="product-detail-title" className="mt-1 text-xl font-bold">{product.name}</h2></div><button aria-label="Đóng" onClick={onClose} className="grid size-8 place-items-center rounded-lg text-[#8d979e] hover:bg-[#f3f5f5]"><X /></button></div><div className="grid gap-6 p-5 md:grid-cols-[1fr_220px]"><div><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-[#f7f9f8] p-4"><p className="text-xs text-[#89939b]">Giá bán</p><p className="mt-1 text-lg font-black text-[#0d7655]">{money(product.price)}</p></div><div className="rounded-xl bg-[#f7f9f8] p-4"><p className="text-xs text-[#89939b]">Giá vốn</p><p className="mt-1 text-lg font-black">{money(Math.round(product.price * 0.68))}</p></div><div className="rounded-xl bg-[#f7f9f8] p-4"><p className="text-xs text-[#89939b]">Tồn kho</p><p className="mt-1 text-lg font-black">{product.stock} sản phẩm</p></div></div><div className="mt-5 rounded-xl border border-[#e7ebed] p-4"><div className="flex items-center justify-between"><h3 className="font-bold">Các lô hàng FIFO</h3><span className="text-xs font-semibold text-[#0d7655]">Xuất lô cũ trước</span></div><div className="mt-3 flex flex-col gap-2">{product.batches.map((batch) => <div key={batch.code} className="flex items-center justify-between rounded-lg bg-[#fafbfb] px-3 py-2 text-sm"><span className="font-semibold">{batch.code}</span><span className="text-[#78838b]">{batch.quantity} sp · {batch.received}</span></div>)}</div></div></div><div className="flex min-h-44 flex-col items-center justify-center rounded-xl border border-dashed border-[#b9c9c2] bg-[#f8fbf9] p-5 text-center"><div className={`grid size-20 place-items-center rounded-2xl text-2xl font-black ${product.accent}`}>{product.name.slice(0, 2).toUpperCase()}</div><p className="mt-4 text-sm font-bold">Hình ảnh sản phẩm</p><button type="button" className="mt-2 rounded-lg border border-[#cfe0d8] bg-white px-3 py-2 text-xs font-bold text-[#0d7655]">+ Thêm hình ảnh</button></div></div></div></div> }
 

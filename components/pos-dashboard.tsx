@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import useSWR from 'swr'
 import { Minus, Plus, Search, ShoppingBag, Package, BarChart3, BarChartBig, PieChart, CreditCard, Banknote, Trash2, X, ChevronDown, ReceiptText, AlertTriangle, CircleDollarSign, Users, TrendingUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { getSupabaseClient } from '@/lib/supabase/client'
 
 type Product = { id: string; name: string; category: 'retail' | 'recipe'; price: number; stock?: number; accent: string; tag: string }
 type CartLine = Product & { quantity: number }
@@ -103,6 +105,42 @@ export function PosDashboard() {
     { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản', soldItems: [{ name: 'Cơm gà xối mỡ', quantity: 1 }, { name: 'Coca Cola', quantity: 1 }] },
     { code: 'HD0340', dateTime: '27/10/2026 20:56', items: 'Trà đào cam sả', total: 29000, method: 'Tiền mặt', soldItems: [{ name: 'Trà đào cam sả', quantity: 1 }] },
   ])
+  const supabase = getSupabaseClient()
+  useEffect(() => {
+    void supabase.from('pos_products').upsert(products.map(({ id, name, category, price, stock, accent, tag }) => ({ id, name, category, price, stock: stock ?? 20, accent, tag })))
+  }, [supabase])
+
+  const { data: persistedState } = useSWR('pos-state', async () => {
+    const [{ data: savedCart }, { data: savedTransactions }] = await Promise.all([
+      supabase.from('pos_cart_lines').select('product_id, quantity'),
+      supabase.from('pos_transactions').select('code, date_time, total, method, items, sold_items').order('date_time', { ascending: false }).limit(100),
+    ])
+    return { savedCart: savedCart ?? [], savedTransactions: savedTransactions ?? [] }
+  })
+
+  useEffect(() => {
+    if (!persistedState) return
+    const restoredCart = persistedState.savedCart.map((line) => {
+      const product = products.find((candidate) => candidate.id === line.product_id)
+      return product ? { ...product, quantity: line.quantity } : null
+    }).filter((line): line is CartLine => Boolean(line))
+    if (restoredCart.length) setCart(restoredCart)
+    if (persistedState.savedTransactions.length) {
+      setTransactions(persistedState.savedTransactions.map((transaction) => ({
+        code: transaction.code,
+        dateTime: new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(transaction.date_time)),
+        total: transaction.total,
+        method: transaction.method,
+        items: transaction.items,
+        soldItems: transaction.sold_items,
+      })))
+    }
+  }, [persistedState])
+
+  useEffect(() => {
+    void supabase.from('pos_cart_lines').delete().neq('product_id', '')
+    if (cart.length) void supabase.from('pos_cart_lines').upsert(cart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
+  }, [cart, supabase])
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.price * line.quantity, 0), [cart])
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
@@ -126,14 +164,23 @@ export function PosDashboard() {
     if (paymentMethod === 'cash' && received < subtotal) return
     setRevenue((value) => value + subtotal)
     setBills((value) => value + 1)
-    setTransactions((current) => [{
+    const transaction = {
       code: billCode,
       dateTime: new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
       items: cart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
       total: subtotal,
       method: paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
       soldItems: cart.map((line) => ({ name: line.name, quantity: line.quantity })),
-    }, ...current])
+    }
+    setTransactions((current) => [transaction, ...current])
+    void supabase.from('pos_transactions').upsert({
+      code: transaction.code,
+      date_time: new Date().toISOString(),
+      total: transaction.total,
+      method: transaction.method,
+      items: transaction.items,
+      sold_items: transaction.soldItems,
+    })
     setCart([])
     setCashReceived('')
     setPaymentOpen(false)

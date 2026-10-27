@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 
 type Product = { id: string; name: string; category: 'retail' | 'recipe'; price: number; stock?: number; accent: string; tag: string }
 type CartLine = Product & { quantity: number }
-type Transaction = { code: string; dateTime: string; items: string; total: number; method: string }
+type Transaction = { code: string; dateTime: string; items: string; total: number; method: string; soldItems: { name: string; quantity: number }[] }
 
 const products: Product[] = [
   { id: 'redbull', name: 'Bò húc', category: 'retail', price: 15000, stock: 24, accent: 'bg-[#e8f3ff] text-[#1769aa]', tag: 'Nước tăng lực' },
@@ -40,9 +40,9 @@ export function PosDashboard() {
   const [bills, setBills] = useState(342)
   const [orderNote, setOrderNote] = useState('')
   const [transactions, setTransactions] = useState<Transaction[]>([
-    { code: 'HD0342', dateTime: '27/10/2026 21:42', items: 'Mì cay hải sản, Aquafina × 2', total: 59000, method: 'Tiền mặt' },
-    { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản' },
-    { code: 'HD0340', dateTime: '27/10/2026 20:56', items: 'Trà đào cam sả', total: 29000, method: 'Tiền mặt' },
+    { code: 'HD0342', dateTime: '27/10/2026 21:42', items: 'Mì cay hải sản, Aquafina × 2', total: 59000, method: 'Tiền mặt', soldItems: [{ name: 'Mì cay hải sản', quantity: 1 }, { name: 'Aquafina', quantity: 2 }] },
+    { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản', soldItems: [{ name: 'Cơm gà xối mỡ', quantity: 1 }, { name: 'Coca Cola', quantity: 1 }] },
+    { code: 'HD0340', dateTime: '27/10/2026 20:56', items: 'Trà đào cam sả', total: 29000, method: 'Tiền mặt', soldItems: [{ name: 'Trà đào cam sả', quantity: 1 }] },
   ])
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.price * line.quantity, 0), [cart])
@@ -73,6 +73,7 @@ export function PosDashboard() {
       items: cart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
       total: subtotal,
       method: paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
+      soldItems: cart.map((line) => ({ name: line.name, quantity: line.quantity })),
     }, ...current])
     setCart([])
     setCashReceived('')
@@ -99,7 +100,7 @@ export function PosDashboard() {
         </div>}
 
         {activeTab === 'inventory' && <InventoryView />}
-        {activeTab === 'reports' && <><ReportsView transactions={transactions} /><TransactionHistory transactions={transactions} /></>}
+        {activeTab === 'reports' && <><ReportsView transactions={transactions} /><BestSellerTable transactions={transactions} /><TransactionHistory transactions={transactions} /></>}
       </div>
 
       {paymentOpen && <PaymentModal subtotal={subtotal} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
@@ -118,6 +119,19 @@ function ProductDetailModal({ product, onClose }: { product: Product & { stock: 
 function ReportsView({ transactions }: { transactions: Transaction[] }) { const [period, setPeriod] = useState<'hour' | 'day' | 'week' | 'month'>('day'); const now = new Date(); const parseDate = (value: string) => { const [date, time] = value.split(' '); const [day, month, year] = date.split('/').map(Number); const [hour, minute] = time.split(':').map(Number); return new Date(year, month - 1, day, hour, minute); }; const filtered = transactions.filter((transaction) => { const date = parseDate(transaction.dateTime); const age = now.getTime() - date.getTime(); if (period === 'hour') return age <= 60 * 60 * 1000; if (period === 'day') return date.toDateString() === now.toDateString(); if (period === 'week') return age <= 7 * 24 * 60 * 60 * 1000; return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear(); }); const revenue = filtered.reduce((sum, transaction) => sum + transaction.total, 0); const bills = filtered.length; const average = bills ? Math.round(revenue / bills) : 0; const chartValues = period === 'hour' ? Array.from({ length: 6 }, (_, index) => filtered.filter((transaction) => Math.floor((now.getTime() - parseDate(transaction.dateTime).getTime()) / 60000) < (index + 1) * 10).length) : period === 'day' ? Array.from({ length: 12 }, (_, index) => filtered.filter((transaction) => parseDate(transaction.dateTime).getHours() === index + 8).reduce((sum, transaction) => sum + transaction.total, 0)) : period === 'week' ? Array.from({ length: 7 }, (_, index) => filtered.filter((transaction) => parseDate(transaction.dateTime).getDay() === index).reduce((sum, transaction) => sum + transaction.total, 0)) : Array.from({ length: 6 }, (_, index) => filtered.filter((transaction) => Math.floor(parseDate(transaction.dateTime).getDate() / 5) === index).reduce((sum, transaction) => sum + transaction.total, 0)); const maxChart = Math.max(...chartValues, 1); const labels = period === 'hour' ? ['-60p', '-50p', '-40p', '-30p', '-20p', 'Hiện tại'] : period === 'day' ? ['08h', '10h', '12h', '14h', '16h', '18h', '20h', '22h'] : period === 'week' ? ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'] : ['01-05', '06-10', '11-15', '16-20', '21-25', '26-31']; return <section><div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm text-[#89939b]">Số liệu lấy trực tiếp từ lịch sử giao dịch</p><h1 className="text-2xl font-bold tracking-tight">Báo cáo kinh doanh</h1></div><div className="flex rounded-xl border border-[#e3e8e6] bg-white p-1">{([['hour', 'Giờ'], ['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng']] as const).map(([key, label]) => <button key={key} onClick={() => setPeriod(key)} className={`rounded-lg px-3 py-2 text-xs font-bold ${period === key ? 'bg-[#0d7655] text-white' : 'text-[#7b858e] hover:bg-[#f3f6f5]'}`}>{label}</button>)}</div></div><div className="grid gap-4 md:grid-cols-3"><Metric icon={CircleDollarSign} label="Tổng doanh thu" value={money(revenue)} helper={`${filtered.length} bill trong kỳ đã chọn`} /><Metric icon={Users} label="TC · Tổng lượt khách" value={bills.toLocaleString('vi-VN')} helper="Số bill đã hoàn tất" /><Metric icon={TrendingUp} label="TA · Trung bình bill" value={money(average)} helper="Doanh thu trung bình / bill" /></div><div className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6"><div className="flex items-center justify-between"><div><h2 className="font-bold">Doanh thu theo {period === 'hour' ? 'giờ' : period === 'day' ? 'ngày' : period === 'week' ? 'tuần' : 'tháng'}</h2><p className="mt-1 text-xs text-[#929ba2]">Biểu đồ được tính từ các bill đã thanh toán</p></div><span className="rounded-lg bg-[#eff7f3] px-3 py-1.5 text-xs font-bold text-[#0d7655]">{filtered.length} giao dịch</span></div><div className="mt-7 flex h-44 items-end gap-2 border-b border-[#edf0f1] px-2">{chartValues.map((value, index) => <div key={index} className="group flex flex-1 flex-col items-center justify-end gap-2"><div className={`w-full max-w-12 rounded-t-md transition group-hover:bg-[#0d7655] ${value > 0 ? 'bg-[#b9dfd0]' : 'bg-[#edf2f0]'}`} style={{ height: `${Math.max(value / maxChart * 100, value > 0 ? 8 : 2)}%` }} /></div>)}</div><div className="mt-3 flex justify-between px-2 text-[10px] text-[#a1aab0]">{labels.map((label) => <span key={label}>{label}</span>)}</div></div></section> }
 
 function TransactionHistory({ transactions }: { transactions: Transaction[] }) { return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold">Lịch sử giao dịch</h2><p className="mt-1 text-xs text-[#929ba2]">Các bill đã thanh toán gần đây</p></div><ReceiptText className="text-[#0d7655]" /></div><div className="flex flex-col gap-2">{transactions.map((transaction) => <div key={transaction.code} className="grid gap-2 rounded-xl bg-[#fafbfb] p-3 text-sm md:grid-cols-[90px_1fr_90px_110px] md:items-center"><div><p className="font-bold">{transaction.code}</p><p className="text-xs text-[#929ba2]">{transaction.dateTime}</p></div><p className="text-[#66727a]">{transaction.items}</p><span className="font-bold text-[#0d7655]">{money(transaction.total)}</span><span className="text-xs font-semibold text-[#7d8790]">{transaction.method}</span></div>)}</div></section> }
+
+function BestSellerTable({ transactions }: { transactions: Transaction[] }) {
+  const ranking = transactions.reduce((items, transaction) => {
+    transaction.soldItems.forEach((item) => {
+      const current = items.get(item.name) ?? 0
+      items.set(item.name, current + item.quantity)
+    })
+    return items
+  }, new Map<string, number>())
+  const bestSellers = [...ranking.entries()].sort((a, b) => b[1] - a[1])
+
+  return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6 shadow-sm"><div className="mb-5 flex items-center justify-between"><div><h2 className="font-bold">Món bán chạy nhất</h2><p className="mt-1 text-xs text-[#929ba2]">Xếp hạng theo số lượng đã bán trong các giao dịch</p></div><TrendingUp className="text-[#0d7655]" /></div><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-[#edf0f1] text-xs text-[#929ba2]"><th className="pb-3 font-semibold">Món / sản phẩm</th><th className="pb-3 text-right font-semibold">Số lượng bán</th><th className="pb-3 pl-8 font-semibold">Mức độ</th></tr></thead><tbody>{bestSellers.map(([name, quantity], index) => <tr key={name} className="border-b border-[#f3f5f5] last:border-0"><td className="py-3 font-semibold"><span className="mr-3 inline-grid size-7 place-items-center rounded-lg bg-[#edf7f3] text-xs font-black text-[#0d7655]">{index + 1}</span>{name}</td><td className="py-3 text-right font-black text-[#0d7655]">{quantity}</td><td className="py-3 pl-8"><div className="h-2 w-full max-w-64 rounded-full bg-[#edf1ef]"><div className="h-2 rounded-full bg-[#0d7655]" style={{ width: `${Math.max(12, (quantity / (bestSellers[0]?.[1] ?? 1)) * 100)}%` }} /></div></td></tr>)}</tbody></table></div></section>
+}
 
 function Metric({ icon: Icon, label, value, helper }: { icon: typeof CircleDollarSign; label: string; value: string; helper: string }) { return <div className="rounded-2xl border border-[#e7ebed] bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[#edf7f3] text-[#0d7655]"><Icon /></div><span className="text-sm font-medium text-[#76828a]">{label}</span></div><p className="mt-5 text-2xl font-black tracking-tight">{value}</p><p className="mt-2 text-xs text-[#45a778]">{helper}</p></div> }
 

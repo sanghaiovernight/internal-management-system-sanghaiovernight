@@ -105,17 +105,19 @@ export function PosDashboard() {
     { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản', soldItems: [{ name: 'Cơm gà xối mỡ', quantity: 1 }, { name: 'Coca Cola', quantity: 1 }] },
     { code: 'HD0340', dateTime: '27/10/2026 20:56', items: 'Trà đào cam sả', total: 29000, method: 'Tiền mặt', soldItems: [{ name: 'Trà đào cam sả', quantity: 1 }] },
   ])
-  const supabase = getSupabaseClient()
+  const supabase = typeof window === 'undefined' ? null : getSupabaseClient()
   useEffect(() => {
-    void supabase.from('pos_products').upsert(products.map(({ id, name, category, price, stock, accent, tag }) => ({ id, name, category, price, stock: stock ?? 20, accent, tag })))
+  if (!supabase) return
+  void supabase.from('pos_products').upsert(products.map(({ id, name, category, price, stock, accent, tag }) => ({ id, name, category, price, stock: stock ?? 20, accent, tag })))
   }, [supabase])
-
+  
   const { data: persistedState } = useSWR('pos-state', async () => {
-    const [{ data: savedCart }, { data: savedTransactions }] = await Promise.all([
-      supabase.from('pos_cart_lines').select('product_id, quantity'),
-      supabase.from('pos_transactions').select('code, date_time, total, method, items, sold_items').order('date_time', { ascending: false }).limit(100),
-    ])
-    return { savedCart: savedCart ?? [], savedTransactions: savedTransactions ?? [] }
+  if (!supabase) return { savedCart: [], savedTransactions: [] }
+  const [{ data: savedCart }, { data: savedTransactions }] = await Promise.all([
+  supabase.from('pos_cart_lines').select('product_id, quantity'),
+  supabase.from('pos_transactions').select('code, date_time, total, method, items, sold_items').order('date_time', { ascending: false }).limit(100),
+  ])
+  return { savedCart: savedCart ?? [], savedTransactions: savedTransactions ?? [] }
   })
 
   useEffect(() => {

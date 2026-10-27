@@ -20,6 +20,10 @@ const products: Product[] = [
 ]
 
 const money = (value: number) => `${value.toLocaleString('vi-VN')}đ`
+const formatCashInput = (value: string) => {
+  const digits = value.replace(/\D/g, '')
+  return digits ? Number(digits).toLocaleString('vi-VN') : ''
+}
 
 export function PosDashboard() {
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports'>('pos')
@@ -40,7 +44,7 @@ export function PosDashboard() {
   const change = received - subtotal
   const filteredProducts = products.filter((product) => product.name.toLowerCase().includes(query.toLowerCase()))
   const billCode = `HD${String(bills + 1).padStart(4, '0')}`
-  const suggestions = [subtotal, 50000, 100000, 200000].filter((value, index, list) => value >= subtotal && value > 0 && list.indexOf(value) === index).slice(0, 4)
+  const suggestions = [subtotal, 100000, 200000, 500000, 1000000].filter((value, index, list) => value >= subtotal && value > 0 && list.indexOf(value) === index).slice(0, 5)
 
   function addToCart(product: Product) {
     setCart((current) => {
@@ -85,7 +89,7 @@ export function PosDashboard() {
         {activeTab === 'reports' && <><ReportsView revenue={revenue} bills={bills} /><TransactionHistory /></>}
       </div>
 
-      {paymentOpen && <PaymentModal subtotal={subtotal} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={setCashReceived} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
+      {paymentOpen && <PaymentModal subtotal={subtotal} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
     </main>
   )
 }

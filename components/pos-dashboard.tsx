@@ -159,7 +159,7 @@ export function PosDashboard() {
         </div>}
 
         {activeTab === 'inventory' && <InventoryView />}
-        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0"><ReportsView transactions={transactions} /><ReportAlerts transactions={transactions} /><BestSellerTable transactions={transactions} /></div><TransactionHistory transactions={transactions} /></div>}
+        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0"><ReportAlerts transactions={transactions} /><ReportsView transactions={transactions} /><BestSellerTable transactions={transactions} /></div><TransactionHistory transactions={transactions} /></div>}
       </div>
 
       {paymentOpen && <PaymentModal subtotal={subtotal} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
@@ -184,14 +184,15 @@ function TransactionHistory({ transactions }: { transactions: Transaction[] }) {
 function BestSellerTable({ transactions }: { transactions: Transaction[] }) {
   const ranking = transactions.reduce((items, transaction) => {
     transaction.soldItems.forEach((item) => {
-      const current = items.get(item.name) ?? 0
-      items.set(item.name, current + item.quantity)
+      const product = products.find((candidate) => candidate.name === item.name)
+      const current = items.get(item.name) ?? { quantity: 0, revenue: 0 }
+      items.set(item.name, { quantity: current.quantity + item.quantity, revenue: current.revenue + item.quantity * (product?.price ?? 0) })
     })
     return items
-  }, new Map<string, number>())
-  const bestSellers = [...ranking.entries()].sort((a, b) => b[1] - a[1])
+  }, new Map<string, { quantity: number; revenue: number }>())
+  const bestSellers = [...ranking.entries()].sort((a, b) => b[1].revenue - a[1].revenue)
 
-  return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6 shadow-sm"><div className="mb-5 flex items-center justify-between"><div><h2 className="font-bold">Món bán chạy nhất</h2><p className="mt-1 text-xs text-[#929ba2]">Xếp hạng theo số lượng đã bán trong các giao dịch</p></div><TrendingUp className="text-[#0d7655]" /></div><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-[#edf0f1] text-xs text-[#929ba2]"><th className="pb-3 font-semibold">Món / sản phẩm</th><th className="pb-3 text-right font-semibold">Số lượng bán</th><th className="pb-3 pl-8 font-semibold">Mức độ</th></tr></thead><tbody>{bestSellers.map(([name, quantity], index) => <tr key={name} className="border-b border-[#f3f5f5] last:border-0"><td className="py-3 font-semibold"><span className="mr-3 inline-grid size-7 place-items-center rounded-lg bg-[#edf7f3] text-xs font-black text-[#0d7655]">{index + 1}</span>{name}</td><td className="py-3 text-right font-black text-[#0d7655]">{quantity}</td><td className="py-3 pl-8"><div className="h-2 w-full max-w-64 rounded-full bg-[#edf1ef]"><div className="h-2 rounded-full bg-[#0d7655]" style={{ width: `${Math.max(12, (quantity / (bestSellers[0]?.[1] ?? 1)) * 100)}%` }} /></div></td></tr>)}</tbody></table></div></section>
+  return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6 shadow-sm"><div className="mb-5 flex items-center justify-between"><div><h2 className="font-bold">Món bán chạy nhất</h2><p className="mt-1 text-xs text-[#929ba2]">Xếp hạng theo số lượng đã bán trong các giao dịch</p></div><TrendingUp className="text-[#0d7655]" /></div><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-[#edf0f1] text-xs text-[#929ba2]"><th className="pb-3 font-semibold">Món / sản phẩm</th><th className="pb-3 text-right font-semibold">Số lượng bán</th><th className="pb-3 pl-8 text-right font-semibold">Giá trị mang lại</th></tr></thead><tbody>{bestSellers.map(([name, stats], index) => <tr key={name} className="border-b border-[#f3f5f5] last:border-0"><td className="py-3 font-semibold"><span className="mr-3 inline-grid size-7 place-items-center rounded-lg bg-[#edf7f3] text-xs font-black text-[#0d7655]">{index + 1}</span>{name}</td><td className="py-3 text-right font-black text-[#0d7655]">{stats.quantity}</td><td className="py-3 pl-8 text-right font-black text-[#16202a]">{money(stats.revenue)}</td></tr>)}</tbody></table></div></section>
 }
 
 function Metric({ icon: Icon, label, value, helper }: { icon: typeof CircleDollarSign; label: string; value: string; helper: string }) { return <div className="rounded-2xl border border-[#e7ebed] bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[#edf7f3] text-[#0d7655]"><Icon /></div><span className="text-sm font-medium text-[#76828a]">{label}</span></div><p className="mt-5 text-2xl font-black tracking-tight">{value}</p><p className="mt-2 text-xs text-[#45a778]">{helper}</p></div> }

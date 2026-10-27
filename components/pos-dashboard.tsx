@@ -22,7 +22,7 @@ const products: Product[] = [
 const money = (value: number) => `${value.toLocaleString('vi-VN')}đ`
 const formatCashInput = (value: string) => {
   const digits = value.replace(/\D/g, '')
-  return digits ? Number(digits).toLocaleString('vi-VN') : ''
+  return digits ? `${Number(digits).toLocaleString('vi-VN')} đ` : ''
 }
 
 export function PosDashboard() {

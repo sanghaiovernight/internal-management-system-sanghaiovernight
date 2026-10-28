@@ -152,12 +152,13 @@ export function PosDashboard() {
 
   useEffect(() => {
     void db.from('pos_cart_lines').delete().neq('product_id', '')
-    if (cart.length) void db.from('pos_cart_lines').upsert(cart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
+    if (safeCart.length) void db.from('pos_cart_lines').upsert(safeCart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
   }, [cart, supabase])
 
-  useEffect(() => { setCartTabs((tabs) => tabs.map((tab, index) => index === activeCartTab ? cart : tab)) }, [cart, activeCartTab])
-  useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'F9') { event.preventDefault(); if (cart.length > 0) setPaymentOpen(true) } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown) }, [cart.length])
-  const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.price * line.quantity, 0), [cart])
+  const safeCart = Array.isArray(cart) ? cart : []
+  useEffect(() => { setCartTabs((tabs) => tabs.map((tab, index) => index === activeCartTab ? safeCart : (Array.isArray(tab) ? tab : []))) }, [safeCart, activeCartTab])
+  useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'F9') { event.preventDefault(); if (safeCart.length > 0) setPaymentOpen(true) } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown) }, [safeCart.length])
+  const subtotal = useMemo(() => safeCart.reduce((sum, line) => sum + line.price * line.quantity, 0), [safeCart])
   const total = Math.max(0, subtotal - discount)
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
   const change = received - subtotal
@@ -183,10 +184,10 @@ export function PosDashboard() {
     const transaction = {
       code: billCode,
       dateTime: new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
-      items: cart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
+      items: safeCart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
       total: subtotal,
       method: paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
-      soldItems: cart.map((line) => ({ name: line.name, quantity: line.quantity })),
+      soldItems: safeCart.map((line) => ({ name: line.name, quantity: line.quantity })),
     }
     setTransactions((current) => [transaction, ...current])
     void db.from('pos_transactions').upsert({
@@ -218,7 +219,7 @@ export function PosDashboard() {
 
         {activeTab === 'pos' && <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_450px]">
           <section className="min-w-0"><div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm font-medium text-[#89939b]">Thứ Hai, 27 tháng 10, 2026</p><h1 className="text-2xl font-bold tracking-tight">Bán hàng</h1></div><div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a4adb4]" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm món, sản phẩm..." className="h-11 w-full rounded-xl border border-[#e1e6e9] bg-white pl-10 pr-4 text-sm outline-none transition focus:border-[#0d7655] focus:ring-2 focus:ring-[#0d7655]/10" /></div></div><div className="mb-4 flex items-center justify-between"><h2 className="text-sm font-bold">Tất cả sản phẩm <span className="ml-1 font-normal text-[#9aa3aa]">({filteredProducts.length})</span></h2><button className="flex items-center gap-1 text-xs font-semibold text-[#0d7655]">Bộ lọc <ChevronDown /></button></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">{filteredProducts.map((product) => <button key={product.id} onClick={() => addToCart(product)} className="group rounded-2xl border border-[#e8edef] bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#a5cebe] hover:shadow-md"><div className={`mb-3 flex h-28 items-center justify-center rounded-xl ${product.accent}`}><span className="text-center text-3xl font-black tracking-tighter opacity-80">{product.category === 'recipe' ? 'F&B' : product.name.slice(0, 2).toUpperCase()}</span></div><p className="mb-1 truncate text-sm font-bold">{product.name}</p><p className="mb-3 text-[11px] text-[#8d979f]">Kho còn: {product.stock ?? 20}</p><div className="flex items-center justify-between"><span className="text-sm font-bold text-[#0d7655]">{money(product.price)}</span><span className="grid size-7 place-items-center rounded-lg bg-[#eff7f3] text-[#0d7655] transition group-hover:bg-[#0d7655] group-hover:text-white"><Plus /></span></div></button>)}</div></section>
-          <CartPanel cart={cart} subtotal={subtotal} discount={discount} setDiscount={setDiscount} discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} cartTabs={cartTabs} setCartTabs={setCartTabs} activeCartTab={activeCartTab} setActiveCartTab={(index) => { setCartTabs((tabs) => tabs.map((tab, i) => i === activeCartTab ? cart : tab)); setCart(cartTabs[index]); setActiveCartTab(index) }} setCart={setCart} note={orderNote} setNote={setOrderNote} updateQuantity={updateQuantity} onCheckout={() => cart.length > 0 && setPaymentOpen(true)} />
+          <CartPanel cart={safeCart} subtotal={subtotal} discount={discount} setDiscount={setDiscount} discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} cartTabs={cartTabs} setCartTabs={setCartTabs} activeCartTab={activeCartTab} setActiveCartTab={(index) => { setCartTabs((tabs) => tabs.map((tab, i) => i === activeCartTab ? cart : tab)); setCart(cartTabs[index]); setActiveCartTab(index) }} setCart={setCart} note={orderNote} setNote={setOrderNote} updateQuantity={updateQuantity} onCheckout={() => cart.length > 0 && setPaymentOpen(true)} />
         </div>}
 
         {activeTab === 'inventory' && <KiotInventoryManager products={inventoryProducts} onChange={setInventoryProducts} />}

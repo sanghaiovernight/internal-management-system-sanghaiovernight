@@ -117,8 +117,14 @@ export function PosDashboard() {
     const dateTime = new Date().toISOString()
     const method = paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
     const items = safeCart.map((line) => ({ name: line.name, quantity: line.quantity, price: line.price }))
+    const { data: existingTransactions } = await db.from('pos_transactions').select('code')
+    const existingCodes = (existingTransactions ?? []).map((row: { code?: string }) => String(row.code ?? ''))
+    const maxBillNumber = existingCodes.reduce((max: number, code: string) => { const match = code.match(/^HD(\d+)$/); return match ? Math.max(max, Number(match[1])) : max }, 0)
+    const nextBillNumber = maxBillNumber > 0 ? maxBillNumber + 1 : Date.now() % 10000
+    const generatedCode = `HD${String(nextBillNumber).padStart(4, '0')}`
+    const safeBillCode = existingCodes.includes(generatedCode) ? `HD${Date.now().toString().slice(-8)}` : generatedCode
     const transaction = {
-      code: billCode,
+      code: safeBillCode,
       dateTime,
       items: items.map((item) => `${item.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`).join(', '),
       total: Math.round(total),

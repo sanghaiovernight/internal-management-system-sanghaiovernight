@@ -77,8 +77,8 @@ export function PosDashboard() {
         dateTime: transaction.date_time,
         total: Number(transaction.total ?? 0),
         method: transaction.method,
-        items: transaction.items,
-        soldItems: Array.isArray(transaction.sold_items) ? transaction.sold_items : (() => { try { return JSON.parse(transaction.items ?? '[]') } catch { return [] } })(),
+        items: typeof transaction.items === 'string' ? transaction.items : '',
+        soldItems: Array.isArray(transaction.sold_items) ? transaction.sold_items : (Array.isArray(transaction.items) ? transaction.items : (() => { try { return JSON.parse(transaction.items ?? '[]') } catch { return [] } })()),
       })))
     }
   }, [persistedState])

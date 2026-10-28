@@ -105,6 +105,7 @@ export function PosDashboard() {
   const [bills, setBills] = useState(342)
   const [orderNote, setOrderNote] = useState('')
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>(products)
+  const posProducts = products.map((product) => ({ ...product, ...(inventoryProducts.find((inventoryProduct) => inventoryProduct.id === product.id) ?? {}) }))
   const [transactions, setTransactions] = useState<Transaction[]>([
     { code: 'HD0342', dateTime: '27/10/2026 21:42', items: 'Mì cay hải sản, Aquafina × 2', total: 59000, method: 'Tiền mặt', soldItems: [{ name: 'Mì cay hải sản', quantity: 1 }, { name: 'Aquafina', quantity: 2 }] },
     { code: 'HD0341', dateTime: '27/10/2026 21:18', items: 'Cơm gà xối mỡ, Coca Cola', total: 57000, method: 'Chuyển khoản', soldItems: [{ name: 'Cơm gà xối mỡ', quantity: 1 }, { name: 'Coca Cola', quantity: 1 }] },
@@ -134,7 +135,7 @@ export function PosDashboard() {
   useEffect(() => {
     if (!persistedState) return
     const restoredCart = persistedState.savedCart.map((line) => {
-      const product = products.find((candidate) => candidate.id === line.product_id)
+      const product = posProducts.find((candidate) => candidate.id === line.product_id)
       return product ? { ...product, quantity: line.quantity } : null
     }).filter((line): line is CartLine => Boolean(line))
     if (restoredCart.length) setCart(restoredCart)
@@ -157,12 +158,12 @@ export function PosDashboard() {
 
   const safeCart = Array.isArray(cart) ? cart : []
   useEffect(() => { setCartTabs((tabs) => tabs.map((tab, index) => index === activeCartTab ? safeCart : (Array.isArray(tab) ? tab : []))) }, [safeCart, activeCartTab])
-  useEffect(() => { let buffer = ''; let timer: ReturnType<typeof setTimeout>; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'F9') { event.preventDefault(); if (safeCart.length > 0) setPaymentOpen(true); return } if (event.key === 'Enter') { const code = buffer.trim(); buffer = ''; if (code) { const product = products.find((item) => item.barcode === code); if (product) addToCart(product); else setQuery(code) } return } if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) { buffer += event.key; clearTimeout(timer); timer = setTimeout(() => { buffer = '' }, 120) } }; window.addEventListener('keydown', onKeyDown); return () => { clearTimeout(timer); window.removeEventListener('keydown', onKeyDown) } }, [safeCart.length, products])
+  useEffect(() => { let buffer = ''; let timer: ReturnType<typeof setTimeout>; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'F9') { event.preventDefault(); if (safeCart.length > 0) setPaymentOpen(true); return } if (event.key === 'Enter') { const code = buffer.trim(); buffer = ''; if (code) { const product = posProducts.find((item) => item.barcode === code); if (product) addToCart(product); else setQuery(code) } return } if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) { buffer += event.key; clearTimeout(timer); timer = setTimeout(() => { buffer = '' }, 120) } }; window.addEventListener('keydown', onKeyDown); return () => { clearTimeout(timer); window.removeEventListener('keydown', onKeyDown) } }, [safeCart.length, posProducts])
   const subtotal = useMemo(() => safeCart.reduce((sum, line) => sum + line.price * line.quantity, 0), [safeCart])
   const total = Math.max(0, subtotal - discount)
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
   const change = received - total
-  const filteredProducts = products.filter((product) => product.name.toLowerCase().includes(query.toLowerCase()))
+  const filteredProducts = posProducts.filter((product) => product.name.toLowerCase().includes(query.toLowerCase()))
   const billCode = `HD${String(bills + 1).padStart(4, '0')}`
   const suggestions = [subtotal, 100000, 200000, 500000, 1000000].filter((value, index, list) => value >= subtotal && value > 0 && list.indexOf(value) === index).slice(0, 5)
 

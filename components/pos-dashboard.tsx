@@ -161,7 +161,7 @@ export function PosDashboard() {
   const subtotal = useMemo(() => safeCart.reduce((sum, line) => sum + line.price * line.quantity, 0), [safeCart])
   const total = Math.max(0, subtotal - discount)
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
-  const change = received - subtotal
+  const change = received - total
   const filteredProducts = products.filter((product) => product.name.toLowerCase().includes(query.toLowerCase()))
   const billCode = `HD${String(bills + 1).padStart(4, '0')}`
   const suggestions = [subtotal, 100000, 200000, 500000, 1000000].filter((value, index, list) => value >= subtotal && value > 0 && list.indexOf(value) === index).slice(0, 5)
@@ -179,13 +179,13 @@ export function PosDashboard() {
 
   function completePayment() {
     if (paymentMethod === 'cash' && received < total) return
-    setRevenue((value) => value + subtotal)
+    setRevenue((value) => value + total)
     setBills((value) => value + 1)
     const transaction = {
       code: billCode,
       dateTime: new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
       items: safeCart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
-      total: subtotal,
+      total,
       method: paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
       soldItems: safeCart.map((line) => ({ name: line.name, quantity: line.quantity })),
     }
@@ -199,6 +199,8 @@ export function PosDashboard() {
       sold_items: transaction.soldItems,
     })
     setCart([])
+    setDiscount(0)
+    setDiscountOpen(false)
     setCashReceived('')
     setPaymentOpen(false)
   }
@@ -346,7 +348,7 @@ function BestSellerTable({ transactions, products }: { transactions: Transaction
   }, new Map<string, { quantity: number; revenue: number }>())
   const bestSellers = [...ranking.entries()].sort((a, b) => b[1].revenue - a[1].revenue)
 
-  return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6 shadow-sm"><div className="mb-5 flex items-center justify-between"><div><h2 className="font-bold">Món bán chạy nhất</h2><p className="mt-1 text-xs text-[#929ba2]">Xếp hạng theo số lượng đã bán trong các giao dịch</p></div><TrendingUp className="text-[#0d7655]" /></div><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-[#edf0f1] text-xs text-[#929ba2]"><th className="pb-3 font-semibold">Món / sản phẩm</th><th className="pb-3 text-right font-semibold">Số lượng bán</th><th className="pb-3 pl-8 text-right font-semibold">Giá trị mang lại</th></tr></thead><tbody>{bestSellers.map(([name, stats], index) => <tr key={name} className="border-b border-[#f3f5f5] last:border-0"><td className="py-3 font-semibold"><span className="mr-3 inline-grid size-7 place-items-center rounded-lg bg-[#edf7f3] text-xs font-black text-[#0d7655]">{index + 1}</span>{name}</td><td className="py-3 text-right font-black text-[#0d7655]">{stats.quantity}</td><td className="py-3 pl-8 text-right font-black text-[#16202a]">{money(stats.revenue)}</td></tr>)}</tbody></table></div></section>
+  return <section className="mt-5 rounded-2xl border border-[#e7ebed] bg-white p-6 shadow-sm"><div className="mb-5 flex items-center justify-between"><div><h2 className="font-bold">Món bán chạy nh���t</h2><p className="mt-1 text-xs text-[#929ba2]">Xếp hạng theo số lượng đã bán trong các giao dịch</p></div><TrendingUp className="text-[#0d7655]" /></div><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-[#edf0f1] text-xs text-[#929ba2]"><th className="pb-3 font-semibold">Món / sản phẩm</th><th className="pb-3 text-right font-semibold">Số lượng bán</th><th className="pb-3 pl-8 text-right font-semibold">Giá trị mang lại</th></tr></thead><tbody>{bestSellers.map(([name, stats], index) => <tr key={name} className="border-b border-[#f3f5f5] last:border-0"><td className="py-3 font-semibold"><span className="mr-3 inline-grid size-7 place-items-center rounded-lg bg-[#edf7f3] text-xs font-black text-[#0d7655]">{index + 1}</span>{name}</td><td className="py-3 text-right font-black text-[#0d7655]">{stats.quantity}</td><td className="py-3 pl-8 text-right font-black text-[#16202a]">{money(stats.revenue)}</td></tr>)}</tbody></table></div></section>
 }
 
 function Metric({ icon: Icon, label, value, helper }: { icon: typeof CircleDollarSign; label: string; value: string; helper: string }) { return <div className="rounded-2xl border border-[#e7ebed] bg-white p-5 shadow-sm"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[#edf7f3] text-[#0d7655]"><Icon /></div><span className="text-sm font-medium text-[#76828a]">{label}</span></div><p className="mt-5 text-2xl font-black tracking-tight">{value}</p><p className="mt-2 text-xs text-[#45a778]">{helper}</p></div> }

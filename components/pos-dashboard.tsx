@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { Minus, Plus, Search, ShoppingBag, Package, BarChart3, BarChartBig, PieChart, CreditCard, Banknote, Trash2, X, ChevronDown, ReceiptText, AlertTriangle, CircleDollarSign, Users, TrendingUp, Pencil, Sun, Moon } from 'lucide-react'
+import { Minus, Plus, Search, Package, BarChart3, BarChartBig, PieChart, CreditCard, Banknote, Trash2, X, ChevronDown, ReceiptText, AlertTriangle, CircleDollarSign, Users, TrendingUp, Pencil, Sun, Moon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { getSupabaseClient } from '@/lib/supabase/client'
@@ -212,7 +212,7 @@ export function PosDashboard() {
     <main className={`min-h-screen ${darkMode ? 'dark bg-[#14110F] text-stone-100' : 'bg-[#FAF7F2] text-[#2A1810] dark:text-stone-100'}`}>{scannerToast && <div role="status" className={`fixed right-5 top-5 z-50 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-lg ${scannerToast.error ? 'bg-[#c03b34]' : 'bg-[#D97706]'}`}>{scannerToast.message}</div>}
       <header className="border-b border-[#E7DED3] bg-white dark:bg-[#1F1A17] dark:border-stone-800">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-5 py-4 lg:px-8">
-          <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[#D97706] text-white"><ShoppingBag /></div><div><p className="text-lg font-bold tracking-tight">SangHai Overnight</p><p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#8b959e]">Convenience & F&B</p></div></div>
+          <div className="flex items-center gap-3"><img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/S-4-22-2025-aCrnl9lthP9ZZ46IRiWu0DnzVbIsML.png" alt="SangHai Overnight" className="size-11 rounded-xl object-cover" /><div><p className="text-lg font-bold tracking-tight">SangHai Overnight</p><p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#8b959e]">Convenience & F&B</p></div></div>
           <div className="hidden items-center gap-6 text-sm text-[#7d8790] dark:text-stone-300 md:flex"><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-[#D97706]" /> Hệ thống đang hoạt động</span><span className="h-5 w-px bg-[#E7DED3]" /><span>Admin</span><button type="button" aria-label={darkMode ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} onClick={() => setDarkMode((value) => !value)} className="grid size-9 place-items-center rounded-full border border-[#E7DED3] bg-white dark:bg-[#1F1A17] dark:border-stone-800 text-[#D97706] shadow-sm">{darkMode ? <Sun size={16} /> : <Moon size={16} />}</button><div className="grid size-9 place-items-center rounded-full bg-[#F5E6CC] text-sm font-bold text-[#9c6c31]">AD</div></div>
         </div>
       </header>

@@ -133,11 +133,16 @@ export function PosDashboard() {
         date_time: dateTime,
         total: transaction.total,
         method: transaction.method,
-        items,
+        items: JSON.stringify(items),
       }])
-      if (error) throw error
+      if (error) {
+        console.error('Lỗi Supabase:', error)
+        alert(`Lỗi lưu hóa đơn: ${error.message}`)
+        return
+      }
 
       console.log('Insert thành công')
+      alert('Thanh toán thành công!')
       setRevenue((value) => value + transaction.total)
       setBills((value) => value + 1)
       setTransactions((current) => [transaction, ...current])
@@ -147,7 +152,8 @@ export function PosDashboard() {
       setCashReceived('')
       setPaymentOpen(false)
     } catch (error) {
-      console.error('[v0] Failed to save pos_transactions:', error)
+      console.error('Lỗi hệ thống:', error)
+      alert(`Lỗi hệ thống: ${error instanceof Error ? error.message : 'Không xác định'}`)
     }
   }
 

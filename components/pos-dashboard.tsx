@@ -113,30 +113,42 @@ export function PosDashboard() {
 
   async function completePayment() {
     if (paymentMethod === 'cash' && received < total) return
-    setRevenue((value) => value + total)
-    setBills((value) => value + 1)
+
+    const dateTime = new Date().toISOString()
+    const method = paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
+    const items = safeCart.map((line) => ({ name: line.name, quantity: line.quantity, price: line.price }))
     const transaction = {
       code: billCode,
-      dateTime: new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
-      items: safeCart.map((line) => `${line.name}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`).join(', '),
-      total,
-      method: paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản',
-      soldItems: safeCart.map((line) => ({ name: line.name, quantity: line.quantity })),
+      dateTime,
+      items: items.map((item) => `${item.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`).join(', '),
+      total: Math.round(total),
+      method,
+      soldItems: items.map(({ name, quantity }) => ({ name, quantity })),
     }
-    setTransactions((current) => [transaction, ...current])
-    const { error: transactionError } = await db.from('pos_transactions').insert({
-      code: transaction.code,
-      date_time: new Date().toISOString(),
-      total: transaction.total,
-      method: transaction.method,
-      items: JSON.stringify(transaction.soldItems),
-    })
-    if (transactionError) { console.error('[v0] Failed to save pos_transactions:', JSON.stringify(transactionError, null, 2)); return }
-    setCart([])
-    setDiscount(0)
-    setDiscountOpen(false)
-    setCashReceived('')
-    setPaymentOpen(false)
+
+    try {
+      if (!db) throw new Error('Supabase client is unavailable')
+      const { error } = await db.from('pos_transactions').insert([{
+        code: transaction.code,
+        date_time: dateTime,
+        total: transaction.total,
+        method: transaction.method,
+        items,
+      }])
+      if (error) throw error
+
+      console.log('Insert thành công')
+      setRevenue((value) => value + transaction.total)
+      setBills((value) => value + 1)
+      setTransactions((current) => [transaction, ...current])
+      setCart([])
+      setDiscount(0)
+      setDiscountOpen(false)
+      setCashReceived('')
+      setPaymentOpen(false)
+    } catch (error) {
+      console.error('[v0] Failed to save pos_transactions:', error)
+    }
   }
 
   return (

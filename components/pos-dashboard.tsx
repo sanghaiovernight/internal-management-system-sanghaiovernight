@@ -6,6 +6,7 @@ import { Minus, Plus, Search, ShoppingBag, Package, BarChart3, BarChartBig, PieC
 
 import { Button } from '@/components/ui/button'
 import { getSupabaseClient } from '@/lib/supabase/client'
+import ReportsView from './reports-view'
 
 type Product = { id: string; name: string; category: string; productType?: 'retail' | 'fnb' | 'ingredient'; price: number; cost?: number; costPrice?: number; barcode?: string; imageUrl?: string; stock?: number; accent: string; tag: string; brand?: string; distributor?: string; unit?: string }
 type CartLine = Product & { quantity: number }
@@ -183,7 +184,7 @@ export function PosDashboard() {
         </div>}
 
         {activeTab === 'inventory' && <KiotInventoryManager products={inventoryProducts} onChange={setInventoryProducts} />}
-        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView transactions={transactions} products={inventoryProducts} /><ExpenseStockCards transactions={transactions} products={inventoryProducts} expenses={expenses} onExpenseAdded={(expense: { id: string; description: string; amount: number; spentAt: string }) => setExpenses((current) => expense.amount < 0 ? current.filter((item) => item.id !== expense.id.slice(8)) : [expense, ...current])} onOpenInventory={() => setActiveTab('inventory')} /></div><TransactionHistory transactions={transactions} products={inventoryProducts} onCancel={(code) => { const transaction = transactions.find((item) => item.code === code); if (transaction) { setTransactions((current) => current.filter((item) => item.code !== code)); setInventoryProducts((current) => current.map((product) => { const line = transaction.soldItems.find((item) => item.name === product.name); return line && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + line.quantity } : product })) } }} onRefund={(updated, itemName, quantity) => { setTransactions((current) => current.map((transaction) => transaction.code === updated.code ? updated : transaction)); setInventoryProducts((current) => current.map((product) => product.name === itemName && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + quantity } : product)) }} /></div>}
+        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView transactions={transactions} products={inventoryProducts} expenses={expenses} onExpenseAdded={(expense) => setExpenses((current) => [expense, ...current])} onDeleteExpense={(id) => setExpenses((current) => current.filter((expense) => expense.id !== id))} onOpenInventory={() => setActiveTab('inventory')} /></div><TransactionHistory transactions={transactions} products={inventoryProducts} onCancel={(code) => { const transaction = transactions.find((item) => item.code === code); if (transaction) { setTransactions((current) => current.filter((item) => item.code !== code)); setInventoryProducts((current) => current.map((product) => { const line = transaction.soldItems.find((item) => item.name === product.name); return line && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + line.quantity } : product })) } }} onRefund={(updated, itemName, quantity) => { setTransactions((current) => current.map((transaction) => transaction.code === updated.code ? updated : transaction)); setInventoryProducts((current) => current.map((product) => product.name === itemName && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + quantity } : product)) }} /></div>}
       </div>
 
       {paymentOpen && <PaymentModal subtotal={total} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
@@ -298,7 +299,7 @@ function ProductDetailModal({ product, onClose }: { product: Product & { stock: 
 
 function calculateCostOfGoodsSold(transactions: Transaction[], productList: Product[]) { return transactions.reduce((sum, transaction) => sum + transaction.soldItems.reduce((lineSum, item) => { const product = productList.find((candidate) => candidate.name === item.name); return lineSum + item.quantity * (product?.costPrice ?? product?.cost ?? Math.round((product?.price ?? 0) * 0.68)) }, 0), 0) }
 
-function ReportsView({ transactions, products }: { transactions: Transaction[]; products: Product[] }) {
+function LegacyReportsView({ transactions, products }: { transactions: Transaction[]; products: Product[] }) {
   const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all'>('today')
   const [metric, setMetric] = useState<'revenue' | 'count' | 'average'>('revenue')
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie'>('bar')

@@ -9,6 +9,9 @@ import { useBarcodeScanner } from '@/lib/hooks/use-barcode-scanner'
 import { CameraScanner, ScanButton } from './barcode-scanner'
 import { useConfirm } from './confirm-dialog'
 import CategoryManager from './category-manager'
+import StocktakeEditor from './stocktake-editor'
+import { useStockChecks } from '@/lib/hooks/use-stock-checks'
+import {MAX_QUANTITY,formatNumber} from '@/lib/stocktake'
 import MoneyInput from './money-input'
 import StockImportHistory from './stock-import-history'
 import { useStockImports, type StockImport } from '@/lib/hooks/use-stock-imports'
@@ -23,13 +26,13 @@ export default function InventoryManager({ products, onChange, categories, onCre
   const confirm = useConfirm()
   const db = getSupabaseClient()
   const history = useStockImports()
+  const checks = useStockChecks()
   const [tab, setTab] = useState<'stock' | 'receiving' | 'audit'>('stock')
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
   const [editing, setEditing] = useState<Product | null>(null)
   const editOriginal = useRef<Product | null>(null)
   const openEdit = (product: Product) => { editOriginal.current = product; setEditing({ ...product }) }
-  const [actual, setActual] = useState<Record<string, string>>({})
   const [receiptProduct, setReceiptProduct] = useState('')
   const [receiptQty, setReceiptQty] = useState('')
   const [receiptTotal, setReceiptTotal] = useState('')
@@ -61,7 +64,7 @@ export default function InventoryManager({ products, onChange, categories, onCre
     finally { busy.current = false; setSaving(false) }
   }
   const updateStock = (product: Product, stock: number) => action(async () => {
-    if (!Number.isSafeInteger(stock) || stock < 0) throw new Error('Tồn kho phải là số nguyên không âm.')
+    if (!Number.isSafeInteger(stock) || stock < 0 || stock > MAX_QUANTITY) throw new Error('Tồn kho phải là số nguyên không âm.')
     let request = db.from('pos_products').update({ stock }).eq('id', product.id)
     request = product.stock ? request.eq('stock', product.stock) : request.or('stock.eq.0,stock.is.null')
     const { data, error } = await request.select('id, stock').single()
@@ -133,7 +136,7 @@ export default function InventoryManager({ products, onChange, categories, onCre
         <div className="hidden grid-cols-[minmax(0,1fr)_90px_90px_150px_40px] gap-4 border-b px-4 py-3 text-xs text-stone-500 md:grid"><span>Hàng hóa</span><span>Giá vốn</span><span>Giá bán</span><span>Tồn kho</span><span>Sửa</span></div>
         {filtered.map((product) => <ProductRow key={product.id} product={product} onStock={updateStock} onEdit={openEdit} disabled={saving} />)}
         {!filtered.length && <p className="p-4 text-sm text-stone-500">Không có mặt hàng phù hợp.</p>}
-      </div> : <Audit products={filtered} actual={actual} setActual={setActual} onBalance={updateStock} disabled={saving} />}
+      </div> : <StocktakeEditor products={products} visibleProducts={filtered} onSaved={(rows,sheet)=>{onChange(products.map((product)=>{const row=rows.find((item)=>item.id===product.id);return row?{...product,stock:Number(row.stock),costPrice:Number(row.cost_price),cost:Number(row.cost_price)}:product}));void checks.remember(sheet)}} />}
     </>}
     {editing && <EditModal product={editing} setProduct={setEditing} categories={categories} onSave={saveEdit} onDelete={deleteProduct} onClose={() => { if (!saving) setEditing(null) }} saving={saving} onCamera={() => setCamera(true)} failure={failure} />}
     {camera && <CameraScanner onScan={scan} onClose={() => setCamera(false)} />}
@@ -146,17 +149,9 @@ function ProductRow({ product, onStock, onEdit, disabled }: { product: Product; 
     <div className="col-span-2 min-w-0 md:col-span-1"><p className="break-words font-semibold text-stone-900 dark:text-stone-100">{product.name}</p><div className="mt-1 flex flex-wrap gap-2 text-xs"><span className="max-w-full break-words rounded-full bg-stone-100 px-2 py-0.5 text-stone-500">{product.category || 'Khác'}</span>{prep && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">Pha chế / Nấu mới</span>}</div>{product.barcode && <p className="mt-1 break-all text-xs text-stone-400">{product.barcode}</p>}</div>
     <div className="col-span-2 min-w-0 md:col-span-1"><span className="mr-2 text-xs text-stone-500 md:hidden">Giá vốn</span><span data-testid="inventory-cost">{isRetail(product) || (product.costPrice ?? 0) > 0 ? money(product.costPrice ?? 0) : '—'}</span></div>
     <div className="col-span-2 min-w-0 font-semibold text-amber-700 md:col-span-1"><span className="mr-2 text-xs font-normal text-stone-500 md:hidden">Giá bán</span><span>{money(product.price)}</span></div>
-    <div className="flex min-w-0 flex-wrap items-center gap-2"><div className="flex items-center rounded-lg border border-stone-200"><button disabled={disabled || !product.stock} type="button" aria-label={`Giảm tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) - 1)} className="p-2.5 text-stone-500 disabled:opacity-40"><Minus className="size-3" /></button><span aria-label={`Tồn kho ${product.name}`} className="min-w-10 border-x px-2 text-center text-sm font-semibold">{product.stock ?? 0}</span><button disabled={disabled} type="button" aria-label={`Tăng tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) + 1)} className="p-2.5 text-stone-500"><Plus className="size-3" /></button></div><span className={`text-xs ${prep ? 'text-emerald-600' : (product.stock ?? 0) <= 5 ? 'text-red-600' : 'text-stone-500'}`}>{prep ? 'Đang chế biến' : `Còn ${product.stock ?? 0}`}</span></div>
+    <div className="flex min-w-0 flex-wrap items-center gap-2"><div className="flex items-center rounded-lg border border-stone-200"><button disabled={disabled || !product.stock} type="button" aria-label={`Giảm tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) - 1)} className="p-2.5 text-stone-500 disabled:opacity-40"><Minus className="size-3" /></button><span aria-label={`Tồn kho ${product.name}`} className="min-w-10 border-x px-2 text-center text-sm font-semibold">{formatNumber(product.stock ?? 0)}</span><button disabled={disabled} type="button" aria-label={`Tăng tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) + 1)} className="p-2.5 text-stone-500"><Plus className="size-3" /></button></div><span className={`text-xs ${prep ? 'text-emerald-600' : (product.stock ?? 0) <= 5 ? 'text-red-600' : 'text-stone-500'}`}>{prep ? 'Đang chế biến' : `Còn ${formatNumber(product.stock ?? 0)}`}</span></div>
     <button disabled={disabled} type="button" onClick={() => onEdit(product)} aria-label={`Sửa ${product.name}`} className="justify-self-end rounded-lg p-2 text-stone-500 hover:bg-amber-50"><Pencil className="size-4" /></button>
   </article>
-}
-
-function Audit({ products, actual, setActual, onBalance, disabled }: { products: Product[]; actual: Record<string, string>; setActual: (next: Record<string, string>) => void; onBalance: (product: Product, stock: number) => void; disabled: boolean }) {
-  return <div className="space-y-3">{products.map((product) => {
-    const real = Number(actual[product.id] ?? product.stock ?? 0)
-    const diff = real - (product.stock ?? 0)
-    return <div key={product.id} className={`${panelClass} grid gap-3 sm:grid-cols-2`}><div className="min-w-0"><p className="break-words font-semibold">{product.name}</p><p className="text-xs text-stone-500">Tồn trên máy: {product.stock ?? 0}</p></div><div className="flex min-w-0 flex-wrap items-center gap-2"><label className="text-xs">Tồn thực tế<input aria-label={`Tồn thực tế ${product.name}`} type="number" min="0" step="1" value={actual[product.id] ?? product.stock ?? 0} onChange={(event) => setActual({ ...actual, [product.id]: event.target.value })} className="ml-2 w-20 rounded-lg border px-2 py-1.5 text-center" /></label><span>{diff > 0 ? '+' : ''}{diff}</span>{diff !== 0 && <button disabled={disabled} type="button" onClick={() => onBalance(product, real)} className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-700">Cân bằng</button>}</div></div>
-  })}</div>
 }
 
 type ReceivingProps = { products: Product[]; categories: string[]; selected: string; setSelected: (value: string) => void; qty: string; setQty: (value: string) => void; total: string; setTotal: (value: string) => void; autoExpense: boolean; setAutoExpense: (value: boolean) => void; onSave: () => void; saving: boolean; onScan: (code: string) => void; onCamera: () => void }
@@ -175,7 +170,7 @@ function Receiving({ products, categories, selected, setSelected, qty, setQty, t
       <label className="block text-xs">Lọc nhóm hàng<select aria-label="Nhóm hàng nhập" value={category} onChange={(event) => setCategory(event.target.value)} className={`${inputClass} mt-1`}><option value="">Tất cả</option>{categories.map((name) => <option key={name}>{name}</option>)}</select></label>
       <label className="block text-sm font-semibold">Mặt hàng đã chọn<select aria-label="Mặt hàng nhập" value={selected} onChange={(event) => setSelected(event.target.value)} required className={`${inputClass} mt-1`}><option value="">Chọn mặt hàng</option>{product && !matches.some((item) => item.id === product.id) && <option value={product.id}>{product.name}</option>}{matches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       {product && <p className="break-words text-sm text-amber-700">Đang nhập: {product.name}</p>}
-      <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm">Số lượng<input aria-label="Số lượng nhập" value={qty} onChange={(event) => setQty(event.target.value)} type="number" min="1" step="1" required className={`${inputClass} mt-1`} /></label><label className="text-sm">Tổng tiền đợt nhập này<input aria-label="Tổng tiền nhập" value={total} onChange={(event) => setTotal(event.target.value.replace(/\D/g, ''))} type="text" inputMode="numeric" pattern="[0-9]*" required className={`${inputClass} mt-1`} /></label></div>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm">Số lượng<input aria-label="Số lượng nhập" value={qty} onChange={(event) => setQty(event.target.value)} type="number" min="1" max={MAX_QUANTITY} step="1" required className={`${inputClass} mt-1`} /></label><label className="text-sm">Tổng tiền đợt nhập này<input aria-label="Tổng tiền nhập" value={total} onChange={(event) => setTotal(event.target.value.replace(/\D/g, ''))} type="text" inputMode="numeric" pattern="[0-9]*" required className={`${inputClass} mt-1`} /></label></div>
       <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Giá vốn / đơn vị: <strong>{cost === null ? '—' : money(cost)}</strong><span className="mt-1 block text-xs">Tổng tiền ÷ số lượng. Đơn giá của riêng đợt nhập, dùng để đối chứng phiếu.</span></p>
       <p className="text-sm">Giá vốn bình quân dự kiến sau nhập: <strong>{average === null ? '—' : money(average)}</strong></p>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={autoExpense} onChange={(event) => setAutoExpense(event.target.checked)} className="mt-1" />Tự động ghi tổng tiền nhập hàng vào Sổ chi phí</label>

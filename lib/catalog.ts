@@ -17,7 +17,7 @@ export function matchesProduct(product: { name: string; barcode?: string }, quer
 export function receiptCost(quantity: string | number, total: string | number) {
   const qty = Number(quantity)
   const amount = Number(total)
-  if (String(quantity).trim() === '' || String(total).trim() === '' || !Number.isSafeInteger(qty) || qty <= 0 || !Number.isFinite(amount) || amount < 0) {
+  if (String(quantity).trim() === '' || String(total).trim() === '' || !Number.isSafeInteger(qty) || qty <= 0 || qty > 999_999_999 || !Number.isFinite(amount) || amount < 0) {
     throw new Error('Nhập số lượng nguyên dương và tổng tiền không âm.')
   }
   return { quantity: qty, total: amount, costPrice: amount / qty }

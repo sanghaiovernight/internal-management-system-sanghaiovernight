@@ -16,13 +16,16 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql','202611010005_short_import_numbers.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql','202611010005_short_import_numbers.sql','202611010006_stocktake_sheets.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
   }
   for(const part of ['01_schema_and_compat.sql','02_inventory_replay.sql','03_short_receipt_checkout.sql','04_returns_and_void.sql']) {
     const sql=await readFile(new URL(`../supabase/manual/202611010004/${part}`,import.meta.url),'utf8'); await db.exec(sql); await db.exec(sql)
+  }
+  for(const part of ['01_schema_journal.sql','02_complete_stock_check.sql']) {
+    const sql=await readFile(new URL(`../supabase/manual/202611010006/${part}`,import.meta.url),'utf8');await db.exec(sql);await db.exec(sql)
   }
   await db.exec('set role anon')
 })
@@ -360,4 +363,77 @@ test('migration backfills legacy display aliases without changing bill numbers, 
  const row=(await db.query('select receipt_no,activity_receipt_no,qr_url from public.pos_orders where id=$1',[id])).rows[0]
  assert.equal(row.receipt_no,code);assert.equal(row.activity_receipt_no,'HD0111001');assert.equal(row.qr_url,'https://img.vietqr.io/image/original')
  await db.exec('set role anon')
+})
+
+async function checkLine(id,actual,unitCost=null) { const p=await read(id);return {product_id:id,actual_stock:actual,unit_cost:unitCost,expected_stock:p.stock,expected_cost:p.cost_price,expected_is_imported:p.is_imported===true} }
+async function stockCheck(lines,id=randomUUID()) {return (await db.query('select public.pos_complete_stock_check($1,$2::jsonb) result',[id,JSON.stringify(lines)])).rows[0].result}
+
+test('stocktake atomically groups retail gains/losses and prepared gains, costs and journal snapshots',async()=>{
+ const gain=await product(10,6000),loss=await product(8,4000),prepared=await product(0,2000,false)
+ const lines=await Promise.all([checkLine(gain,15,9000),checkLine(loss,3),checkLine(prepared,50)])
+ const result=await stockCheck(lines)
+ assert.match(result.sheet.check_no,/^KK\d{7,}$/);assert.equal(result.sheet.total_increase,55);assert.equal(result.sheet.total_decrease,5)
+ assert.equal((await read(gain)).cost_price,7000);assert.equal((await read(loss)).cost_price,4000);assert.equal((await read(prepared)).cost_price,2000)
+ assert.equal((await read(gain)).stock,15);assert.equal((await read(loss)).stock,3);assert.equal((await read(prepared)).stock,50)
+ const events=(await db.query('select * from public.pos_inventory_events where check_id=$1',[result.sheet.id])).rows
+ assert.equal(events.length,3);assert.ok(events.every(e=>e.kind==='check'));assert.equal(Number(events.find(e=>e.product_id===gain).total_cost),45000)
+ const again=await stockCheck(lines,result.sheet.id);assert.equal(again.sheet.id,result.sheet.id)
+ assert.equal((await db.query('select count(*)::int n from public.pos_inventory_events where check_id=$1',[result.sheet.id])).rows[0].n,3)
+ await assert.rejects(stockCheck([{...lines[0],actual_stock:16}],result.sheet.id),/nội dung khác/)
+})
+test('stocktake requires explicit surplus cost, accepts zero and handles negative opening stock',async()=>{
+ const id=await product(-2,6000),line=await checkLine(id,3)
+ await assert.rejects(stockCheck([line]),/bắt buộc nhập giá vốn/);assert.equal((await read(id)).stock,-2)
+ await stockCheck([{...line,unit_cost:9000}]);assert.equal((await read(id)).cost_price,9000)
+ const free=await product(10,6000);await stockCheck([await checkLine(free,15,0)]);assert.equal((await read(free)).cost_price,4000)
+})
+test('stocktake detects concurrent stock, price and type changes and rolls back every line',async()=>{
+ for(const field of ['stock','cost_price','is_imported']) {
+  const a=await product(10,6000),b=await product(10,6000),request=randomUUID()
+  const lines=await Promise.all([checkLine(a,8),checkLine(b,15,9000)])
+  await db.query(`update public.pos_products set ${field}=$1 where id=$2`,[field==='is_imported'?false:7000,b])
+  await assert.rejects(stockCheck(lines,request),/đã thay đổi/)
+  assert.equal((await read(a)).stock,10)
+  assert.equal((await db.query('select count(*)::int n from public.pos_stock_checks where id=$1',[request])).rows[0].n,0)
+  assert.equal((await db.query('select count(*)::int n from public.pos_inventory_events where check_id=$1',[request])).rows[0].n,0)
+ }
+})
+test('stocktake validates bounds, duplicates, missing products and empty/no-change sheets',async()=>{
+ const id=await product(10,6000),base=await checkLine(id,15,9000)
+ for(const actual_stock of [-1,1.5,1000000000,'NaN','Infinity']) await assert.rejects(stockCheck([{...base,actual_stock}]))
+ for(const unit_cost of [-1,1.5,1000000000000,'NaN','Infinity']) await assert.rejects(stockCheck([{...base,unit_cost}]))
+ await assert.rejects(stockCheck([base,base]),/bị lặp/)
+ await assert.rejects(stockCheck([{...base,product_id:randomUUID()}]),/đã bị xóa/)
+ await assert.rejects(stockCheck([]),/không hợp lệ/)
+ await assert.rejects(stockCheck([{...base,actual_stock:10}]),/không có mặt hàng chênh lệch/)
+ assert.equal((await read(id)).stock,10)
+})
+test('stocktake omits blanks and unchanged rows from the saved sheet and journal',async()=>{
+ const a=await product(8,4000),b=await product(10,6000),c=await product(5,2000)
+ const result=await stockCheck([await checkLine(a,0),await checkLine(b,null),await checkLine(c,5)])
+ assert.equal(result.sheet.lines.length,1);assert.equal(result.sheet.lines[0].product_id,a)
+ assert.equal(result.sheet.total_decrease,8);assert.equal((await read(b)).stock,10);assert.equal((await read(c)).stock,5)
+})
+test('stocktake rolls back header and every product when journal insert fails',async()=>{
+ const a=await product(10,6000),b=await product(8,4000),id=randomUUID()
+ await db.exec("reset role; alter table public.pos_inventory_events add constraint reject_check_test check (kind <> 'check') not valid; set role anon")
+ try { await assert.rejects(stockCheck([await checkLine(a,15,9000),await checkLine(b,3)],id),/reject_check_test/)
+  assert.equal((await read(a)).stock,10);assert.equal((await read(a)).cost_price,6000);assert.equal((await read(b)).stock,8)
+  assert.equal((await db.query('select count(*)::int n from public.pos_stock_checks where id=$1',[id])).rows[0].n,0)
+ } finally {await db.exec('reset role; alter table public.pos_inventory_events drop constraint reject_check_test; set role anon')}
+})
+test('physical stocktake remains an absolute checkpoint when an earlier import is voided',async()=>{
+ const id=await product(10,6000),receipt=await receive(id,5,45000)
+ await stockCheck([await checkLine(id,20,9000)]);const counted=await read(id)
+ await voidImport(receipt.receipt.id)
+ assert.equal((await read(id)).stock,counted.stock);assert.equal((await read(id)).cost_price,counted.cost_price)
+})
+
+test('stocktake header permission failure cannot change products or append journal records',async()=>{
+ const id=await product(10,6000),request=randomUUID(),line=await checkLine(id,15,9000)
+ await db.exec('reset role; revoke insert on public.pos_stock_checks from anon; set role anon')
+ try {await assert.rejects(stockCheck([line],request),/permission denied/)
+  assert.equal((await read(id)).stock,10);assert.equal((await read(id)).cost_price,6000)
+  assert.equal((await db.query('select count(*)::int n from public.pos_inventory_events where check_id=$1',[request])).rows[0].n,0)
+ } finally {await db.exec('reset role; grant insert on public.pos_stock_checks to anon; set role anon')}
 })

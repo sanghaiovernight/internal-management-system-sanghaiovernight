@@ -1,3 +1,4 @@
+import type {StocktakeSheet,StocktakeLine} from '@/lib/stocktake'
 import type { ReceiptSettings, ReceiptOrder } from '@/lib/receipts'
 
 // Application contract. Keep in sync with supabase/migrations and the existing POS schema.
@@ -5,6 +6,7 @@ type Table<Row, Insert = Partial<Row>> = { Row: Row; Insert: Insert; Update: Par
 export type Database = {
   public: {
     Tables: {
+      pos_stock_checks: Table<StocktakeSheet>
       pos_receipt_settings: Table<ReceiptSettings & {id:string}>
       pos_orders: Table<ReceiptOrder>
       pos_stock_imports: Table<{ receipt_no:string; id: string; product_id: string; product_name: string; quantity: number; unit_cost: number; total_cost: number; created_at: string; stock_before: number; cost_before: number; cost_after: number; auto_expense: boolean; voided_at: string | null; reversible: boolean }>
@@ -17,6 +19,7 @@ export type Database = {
     }
     Views: { [_ in never]: never }
     Functions: {
+      pos_complete_stock_check: {Args:{p_request_id:string;p_lines:StocktakeLine[]};Returns:{sheet:StocktakeSheet;products:{id:string;stock:number;cost_price:number}[]}}
       pos_checkout_order: {Args:{p_request_id:string;p_items:{id:string;name:string;quantity:number;price:number;note:string;category:string}[];p_total:number;p_method:string;p_receipt:{cash_received:number|null;settings:ReceiptSettings;qr_url?:string|null}};Returns:{products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder}}
       pos_adjust_order: {Args:{p_order_id:string;p_action:'void'|'refund';p_quantities:{line_id:string;quantity:number}[];p_request_id:string;p_expected_version:number};Returns:{products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder}}
       pos_checkout_receipt: { Args: { p_code:string; p_items:{id:string;name:string;quantity:number;price:number;note:string;category:string}[];p_total:number;p_method:string;p_date_time:string;p_receipt:{cash_received:number|null;settings:ReceiptSettings;qr_url:string|null} }; Returns: {products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder} }

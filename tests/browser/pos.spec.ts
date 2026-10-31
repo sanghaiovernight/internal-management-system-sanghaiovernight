@@ -5,8 +5,11 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; secondProduct?:boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
+  let extra=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false}:null
+  const checks:any[]=[]
+  const checkRequests:any[]=[]
   const categories = [{ name: 'Đồ đóng gói' }]
   let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:80,auto_print:options.autoPrint??false,show_qr:false }
   let orders:any[] = []
@@ -28,9 +31,28 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
     if (method === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } }); return }
     if (table === 'pos_receipt_settings') { if(options.settingsOffline){status=403;body={message:'offline'}}else{if(method==='POST') template={...template,...route.request().postDataJSON()}; body=template} }
     else if(table==='pos_orders') body=options.rawHistory?orders.map((row)=>({...row,items:JSON.stringify(JSON.stringify(row.items))})):options.legacyLog?orders.map((row)=>({...row,receipt_no:'HD1793470000000abcdef',activity_receipt_no:row.receipt_no,activity_events:row.activity_events.map((event:any)=>({...event,receipt_no:'HD1793470000000abcdef'}))})):orders
+    else if(table==='pos_stock_checks')body=checks
+    else if(table==='pos_complete_stock_check') {
+      const input=route.request().postDataJSON();checkRequests.push(input)
+      if(options.failCheck){status=503;body={message:'Chưa kết nối được máy chủ kiểm kho'}}
+      else {
+        const saved=checks.find(row=>row.id===input.p_request_id)
+        const lines=saved?.lines??input.p_lines.map((line:any)=>{
+          const current=line.product_id===product.id?product:extra!
+          const delta=line.actual_stock-current.stock
+          const cost=current.is_imported&&delta>0?Math.round((Math.max(0,current.stock)*current.cost_price+delta*line.unit_cost)/(Math.max(0,current.stock)+delta)):current.cost_price
+          const next={...current,stock:line.actual_stock,cost_price:cost}
+          if(current.id===product.id)product=next;else extra=next
+          return {product_id:current.id,name:current.name,stock_before:current.stock,stock_after:next.stock,cost_before:current.cost_price,cost_after:cost,delta,unit_cost:line.unit_cost,is_imported:current.is_imported}
+        })
+        const sheet=saved??{id:input.p_request_id,check_no:'KK0111001',created_at:new Date().toISOString(),lines,total_increase:lines.reduce((n:number,l:any)=>n+Math.max(0,l.delta),0),total_decrease:lines.reduce((n:number,l:any)=>n+Math.max(0,-l.delta),0)}
+        if(!saved)checks.push(sheet)
+        body={sheet,products:[product,...(extra?[extra]:[])]}
+      }
+    }
     else if (table === 'pos_products') {
       if (method === 'PATCH') product = { ...product, ...route.request().postDataJSON() }
-      body = method === 'GET' ? [product] : product
+      body = method === 'GET' ? [product,...(extra?[extra]:[])] : product
     } else if (table === 'pos_categories') {
       if (method === 'POST') {
         if (options.failCategory) { status = 403; body = { message: 'permission denied' } }
@@ -97,7 +119,7 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
   })
   await page.goto('/')
   await expect(page.getByRole('button', { name: new RegExp(initialProduct.name) }).first()).toBeVisible()
-  return { receipts, payments, requests, results }
+  return { receipts, payments, requests, results,checkRequests }
 }
 
 async function inventory(page: Page) {
@@ -709,4 +731,72 @@ test('legacy void/refund events use the short activity alias instead of the old 
  await expect(page.locator('ol')).toContainText(results[0].receipt_no)
  await expect(page.locator('ol')).not.toContainText('HD1793470000000abcdef')
  await expect(page.locator('ol').getByText(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/)).toBeVisible()
+})
+
+async function stocktake(page:Page){
+ await page.getByRole('button',{name:'Kho hàng',exact:true}).click()
+ await page.getByRole('button',{name:'Kiểm kho',exact:true}).click()
+ await expect(page.getByRole('heading',{name:'Tạo Phiếu Kiểm Kho',exact:true})).toBeVisible()
+}
+test('stocktake requires surplus cost, saves one sheet, updates MAC and shows grouped activity',async({page})=>{
+ const {checkRequests,requests}=await fixture(page,{secondProduct:true})
+ await stocktake(page)
+ const finish=page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true})
+ await expect(finish).toBeDisabled();await expect(page.getByRole('button',{name:'Cân bằng',exact:true})).toHaveCount(0)
+ await page.getByLabel(`Tồn thực tế ${initialProduct.name}`,{exact:true}).fill('12')
+ await expect(finish).toBeDisabled();await expect(page.getByTestId('stocktake-footer')).toContainText('Tổng chênh lệch tăng: 4')
+ await page.getByLabel(`Giá vốn phần tăng ${initialProduct.name}`,{exact:true}).fill('25000')
+ await expect(page.getByLabel(`Giá vốn phần tăng ${initialProduct.name}`,{exact:true})).toHaveValue('25.000')
+ await page.getByLabel('Tồn thực tế Bạc xỉu',{exact:true}).fill('50')
+ await expect(page.getByLabel('Giá vốn phần tăng Bạc xỉu',{exact:true})).toHaveCount(0)
+ await page.getByLabel('Tìm hàng trong kho').fill('Bạc xỉu')
+ await expect(page.getByTestId('stocktake-row')).toHaveCount(1)
+ await expect(page.getByTestId('stocktake-footer')).toContainText('Tổng chênh lệch tăng: 54')
+ await finish.click();await expect(page.getByRole('status').filter({hasText:'Đã hoàn thành phiếu kiểm kho'})).toBeVisible()
+ expect(checkRequests).toHaveLength(1);expect(checkRequests[0].p_lines).toHaveLength(2)
+ expect(requests.filter(r=>r==='PATCH pos_products')).toHaveLength(0)
+ await page.getByLabel('Tìm hàng trong kho').fill('')
+ await page.getByRole('button',{name:'Tồn kho',exact:true}).click()
+ await expect(page.getByLabel(`Tồn kho ${initialProduct.name}`,{exact:true})).toHaveText('12')
+ await expect(page.getByTestId('inventory-cost').first()).toContainText('21.667đ')
+ await page.getByRole('button',{name:'Nhật ký hoạt động',exact:true}).click()
+ await expect(page.getByRole('heading',{name:'Kiểm kho',exact:true})).toHaveCount(1)
+ await expect(page.locator('ol')).toContainText('KK0111001')
+ await expect(page.locator('ol')).toContainText(`${initialProduct.name}: 8 → 12`)
+ await expect(page.locator('ol')).toContainText('Bạc xỉu: 0 → 50')
+})
+test('stocktake blank rows stay untouched and zero counts losses without requesting cost',async({page})=>{
+ const {checkRequests}=await fixture(page,{secondProduct:true});await stocktake(page)
+ await page.getByLabel(`Tồn thực tế ${initialProduct.name}`,{exact:true}).fill('0')
+ await expect(page.getByLabel(`Giá vốn phần tăng ${initialProduct.name}`,{exact:true})).toHaveCount(0)
+ await expect(page.getByTestId('stocktake-footer')).toContainText('Tổng chênh lệch giảm: 8')
+ await page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã hoàn thành phiếu kiểm kho'})).toBeVisible()
+ expect(checkRequests[0].p_lines).toHaveLength(1);expect(checkRequests[0].p_lines[0]).toMatchObject({actual_stock:0,unit_cost:null})
+})
+test('failed stocktake retains inputs and reuses the request UUID on retry',async({page})=>{
+ const {checkRequests}=await fixture(page,{failCheck:true});await stocktake(page)
+ await page.getByLabel(`Tồn thực tế ${initialProduct.name}`,{exact:true}).fill('3')
+ for(let i=0;i<2;i++){
+  await page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true}).click()
+  await expect(page.getByRole('status').filter({hasText:'Chưa kết nối được máy chủ kiểm kho'})).toBeVisible()
+ }
+ expect(checkRequests).toHaveLength(2);expect(checkRequests[0].p_request_id).toBe(checkRequests[1].p_request_id)
+ await expect(page.getByLabel(`Tồn thực tế ${initialProduct.name}`,{exact:true})).toHaveValue('3')
+})
+test('stocktake formatted bounded inputs and fixed footer fit narrow mobile screens',async({page})=>{
+ await fixture(page);await stocktake(page)
+ const actual=page.getByLabel(`Tồn thực tế ${initialProduct.name}`,{exact:true})
+ await actual.fill('8161616');await expect(actual).toHaveValue('8.161.616')
+ const cost=page.getByLabel(`Giá vốn phần tăng ${initialProduct.name}`,{exact:true})
+ await cost.fill('999999999999');await expect(cost).toHaveValue('999.999.999.999')
+ await actual.fill('1000000000');await expect(actual).toHaveValue('8.161.616')
+ await actual.fill('1e9');await expect(actual).toHaveValue('8.161.616')
+ await cost.fill('1000000000000');await expect(cost).toHaveValue('999.999.999.999')
+ for(const width of [320,390,768]){
+  await page.setViewportSize({width,height:850})
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await expect(page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true})).toBeInViewport()
+  expect(await page.getByTestId('stocktake-footer').evaluate(el=>getComputedStyle(el).position)).toBe('fixed')
+ }
 })

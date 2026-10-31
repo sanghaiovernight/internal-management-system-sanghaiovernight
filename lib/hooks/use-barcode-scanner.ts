@@ -15,7 +15,7 @@ export function useBarcodeScanner(onScan: (code: string) => void, enabled = true
     const reset = () => { buffer = ''; lastAt = 0 }
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]') || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"]') || event.ctrlKey || event.metaKey || event.altKey || event.repeat) return
       if (event.key === 'Enter' || event.key === 'Tab') {
         if (buffer.length >= 2 && performance.now() - lastAt < 150) {
           event.preventDefault()

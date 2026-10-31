@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { ConfirmProvider } from '@/components/confirm-dialog'
 
 export const metadata: Metadata = {
   title: 'Sangha.POS · Convenience & F&B',
@@ -41,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <body className="antialiased">
-        {children}
+        <ConfirmProvider>{children}</ConfirmProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

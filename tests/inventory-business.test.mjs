@@ -16,7 +16,7 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
@@ -178,4 +178,37 @@ test('category delete rolls back if product RLS prevents reassignment', async ()
   assert.equal((await read(id)).category,category)
   assert.equal((await db.query('select name from public.pos_categories where name=$1',[category])).rows.length,1)
   await db.exec('reset role; alter table public.pos_products disable row level security; drop policy test_read_products on public.pos_products; set role anon')
+})
+
+const payReceipt = async (id,code=randomUUID(),received=10000,settings={store_name:'Quán thử',paper_width:58}) => (await db.query('select public.pos_checkout_receipt($1,$2::jsonb,8000,$3,now(),$4::jsonb) as result',[code,JSON.stringify([{id,name:'Món thử',quantity:1,price:10000}]),'Tiền mặt',JSON.stringify({cash_received:received,settings})])).rows[0].result
+
+test('receipt checkout persists immutable price/template, discount, tender and change atomically',async()=>{
+ const id=await product(3,6000);const code=randomUUID()
+ const result=await payReceipt(id,code)
+ assert.equal(result.order.receipt_no,code);assert.equal(result.order.items[0].price,10000)
+ assert.equal(result.order.subtotal,10000);assert.equal(result.order.discount,2000)
+ assert.equal(result.order.cash_received,10000);assert.equal(result.order.change_due,2000)
+ assert.equal(result.order.receipt_settings.paper_width,58)
+ await payReceipt(id,code,20000,{store_name:'Tên mới',paper_width:80})
+ assert.equal((await read(id)).stock,2)
+ const saved=(await db.query('select * from public.pos_orders where receipt_no=$1',[code])).rows[0]
+ assert.equal(saved.receipt_settings.store_name,'Quán thử');assert.equal(Number(saved.cash_received),10000)
+})
+test('receipt insert failure rolls back bill and stock; insufficient cash never creates a bill',async()=>{
+ const id=await product(3,6000);const code=randomUUID()
+ await db.exec('reset role; revoke insert on public.pos_orders from anon; set role anon')
+ await assert.rejects(payReceipt(id,code),/permission denied/)
+ assert.equal((await read(id)).stock,3)
+ assert.equal((await db.query('select count(*)::int as n from public.pos_transactions where code=$1',[code])).rows[0].n,0)
+ await db.exec('reset role; grant insert on public.pos_orders to anon; set role anon')
+ await assert.rejects(payReceipt(id,randomUUID(),7000),/Tiền khách đưa chưa đủ/)
+ assert.equal((await read(id)).stock,3)
+})
+test('receipt settings persist, reject unsupported paper widths and legacy lines do not invent unit prices',async()=>{
+ await db.query("update public.pos_receipt_settings set store_name='Tên quán',auto_print=true,paper_width=58 where id='default'")
+ const row=(await db.query("select * from public.pos_receipt_settings where id='default'")).rows[0]
+ assert.equal(row.store_name,'Tên quán');assert.equal(row.auto_print,true)
+ await assert.rejects(db.query("update public.pos_receipt_settings set paper_width=90 where id='default'"),/check constraint/)
+ const legacy=(await db.query("select public.pos_receipt_items('Mì x 2') as items")).rows[0].items
+ assert.equal(legacy[0].price,null);assert.equal(legacy[0].name,'Mì x 2')
 })

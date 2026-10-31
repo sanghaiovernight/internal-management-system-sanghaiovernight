@@ -1,18 +1,20 @@
 'use client'
 
 import { useState } from 'react'
+import { useConfirm } from './confirm-dialog'
 import { FALLBACK_CATEGORY } from '@/lib/catalog'
 
 export default function CategoryManager({ categories, selected, onSelect, onCreate, onDelete }: {
   categories: string[]; selected: string; onSelect: (name: string) => void;
   onCreate: (name: string) => Promise<string>; onDelete: (name: string) => Promise<void>
 }) {
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   async function remove(name: string) {
-    if (busy || !window.confirm(`Xóa nhóm “${name}”? Các mặt hàng sẽ chuyển về “${FALLBACK_CATEGORY}”.`)) return
+    if (busy || !await confirm({ title: `Xóa nhóm ${name}?`, description: `Các mặt hàng sẽ chuyển về “${FALLBACK_CATEGORY}”. Nhóm sẽ bị xóa khỏi bộ lọc ở tất cả các trang.`, confirmLabel: 'Xóa nhóm' })) return
     setBusy(true); setMessage('')
     try { await onDelete(name); if (selected === name) onSelect(''); setMessage(`Đã xóa nhóm “${name}”.`) }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Không thể xóa nhóm hàng.') }

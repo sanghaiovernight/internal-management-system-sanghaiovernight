@@ -161,3 +161,26 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Thermal preview and the identical dedicated print tree. */
+.thermal-receipt { box-sizing: border-box; padding: 3mm; background: #fff; color: #000; font: 11px/1.45 monospace; font-weight: 600; overflow-wrap: anywhere; }
+.thermal-receipt * { box-sizing: border-box; color: #000; }
+.receipt-center { text-align: center; }
+.receipt-store { font-size: 17px; font-weight: 900; }
+.receipt-rule { border-top: 1px dashed #000; margin-top: 8px; padding-top: 8px; }
+.receipt-pair { display: flex; justify-content: space-between; gap: 5px; }
+.receipt-total { font-size: 14px; font-weight: 900; }
+.receipt-lines { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
+.receipt-lines th, .receipt-lines td { padding: 4px 1px; vertical-align: top; overflow-wrap: anywhere; text-align: right; }
+.receipt-lines th:first-child, .receipt-lines td:first-child { text-align: left; }
+.receipt-lines thead { border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
+.receipt-thanks { margin-top: 8px; white-space: pre-wrap; }
+.receipt-qr { width: 38mm; max-width: 100%; margin: 0 auto; }
+#receipt-print-area { display: none; }
+@media print {
+  html, body { margin: 0 !important; padding: 0 !important; min-width: 0 !important; background: #fff !important; color-scheme: light !important; }
+  body > :not(#receipt-print-area) { display: none !important; }
+  #receipt-print-area { display: block !important; margin: 0 !important; padding: 0 !important; }
+  .thermal-receipt { max-width: 100%; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .receipt-lines tr { break-inside: avoid; }
+}

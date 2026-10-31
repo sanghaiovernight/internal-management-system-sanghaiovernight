@@ -4,9 +4,11 @@ import path from 'node:path'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   const categories = [{ name: 'Đồ đóng gói' }]
+  let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:80,auto_print:options.autoPrint??false,show_qr:false }
+  let orders:any[] = []
   let imports: Record<string, any>[] = []
   const receipts: Record<string, unknown>[] = []
   const payments: Record<string, any>[] = []
@@ -20,7 +22,9 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
     let body: unknown = []
     let status = 200
     if (method === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } }); return }
-    if (table === 'pos_products') {
+    if (table === 'pos_receipt_settings') { if(options.settingsOffline){status=403;body={message:'offline'}}else{if(method==='POST') template={...template,...route.request().postDataJSON()}; body=template} }
+    else if(table==='pos_orders') body=orders
+    else if (table === 'pos_products') {
       if (method === 'PATCH') product = { ...product, ...route.request().postDataJSON() }
       body = method === 'GET' ? [product] : product
     } else if (table === 'pos_categories') {
@@ -51,12 +55,12 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
       const receipt = imports.find((row) => row.id === route.request().postDataJSON().p_id)!
       if (options.failVoid) { status = 400; body = { message: 'hàng của phiếu đã được bán' } }
       else { product = { ...product, stock: receipt.stock_before, cost_price: receipt.cost_before }; imports = imports.filter((row) => row.id !== receipt.id); body = { product_id: product.id, stock: product.stock, cost_price: product.cost_price } }
-    } else if (table === 'pos_checkout') {
+    } else if (table === 'pos_checkout_receipt') {
       const input = route.request().postDataJSON()
       payments.push(input)
       const quantity = input.p_items.reduce((sum: number, line: any) => sum+line.quantity,0)
       if (options.failCheckout || (product.is_imported && quantity > product.stock)) { status = 400; body = { message: 'Không đủ tồn kho trên máy chủ' } }
-      else { product = { ...product, stock: Math.max(0,product.stock-quantity) }; body = { products: [{ id: product.id, stock: product.stock, cost_price: product.cost_price }] } }
+      else { product = { ...product, stock: Math.max(0,product.stock-quantity) }; const order={id:input.p_code,receipt_no:input.p_code,created_at:input.p_date_time,payment_method:input.p_method,items:input.p_items,subtotal:input.p_items.reduce((sum:number,item:any)=>sum+item.price*item.quantity,0),discount:0,total:input.p_total,cash_received:input.p_receipt.cash_received,change_due:input.p_receipt.cash_received==null?null:input.p_receipt.cash_received-input.p_total,receipt_settings:input.p_receipt.settings,qr_url:input.p_receipt.qr_url}; orders.push(order); body = { products: [{ id: product.id, stock: product.stock, cost_price: product.cost_price }],order } }
     }
     await route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
   })
@@ -291,7 +295,7 @@ test('prepared items can sell at zero stock, and positive tracked stock bottoms 
     await page.getByRole('button',{name:`Tăng ${initialProduct.name}`,exact:true}).click()
     await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
     await page.getByLabel('Tiền khách đưa').fill('100000')
-    await page.getByRole('button',{name:'Thanh toán',exact:true}).last().click()
+    await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).last().click()
     await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công!'})).toBeVisible()
     expect(payments).toHaveLength(1)
     await inventory(page)
@@ -304,7 +308,7 @@ test('server stock rejection keeps the bill open and does not report payment suc
   await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
   await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
   await page.getByLabel('Tiền khách đưa').fill('100000')
-  await page.getByRole('button',{name:'Thanh toán',exact:true}).last().click()
+  await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).last().click()
   await expect(page.getByRole('status').filter({hasText:'Thanh toán thất bại'})).toBeVisible()
   await expect(page.getByRole('dialog',{name:'Thanh toán đơn hàng'})).toBeVisible()
   expect(payments).toHaveLength(1)
@@ -322,8 +326,8 @@ test('history shows unit cost vs weighted cost; deleting a receipt restores prod
   const history = page.getByRole('region',{name:'Lịch sử nhập kho'})
   await expect(history.getByRole('cell',{name:'25.000đ',exact:true})).toBeVisible()
   await expect(history.getByRole('cell',{name:'100.000đ',exact:true})).toBeVisible()
-  page.once('dialog',(dialog)=>dialog.accept())
   await history.getByRole('button',{name:/Xóa phiếu nhập/}).click()
+  await page.getByRole('alertdialog').getByRole('button',{name:'Xóa phiếu',exact:true}).click()
   await expect(history.getByRole('button',{name:/Xóa phiếu nhập/})).toHaveCount(0)
   await page.getByRole('button',{name:'Tồn kho',exact:true}).click()
   await expect(page.getByLabel(`Tồn kho ${initialProduct.name}`,{exact:true})).toHaveText('8')
@@ -333,8 +337,8 @@ test('history shows unit cost vs weighted cost; deleting a receipt restores prod
 test('deleting a category reassigns products and removes filters without resurrecting defaults', async ({ page }) => {
   await fixture(page)
   await inventory(page)
-  page.once('dialog',(dialog)=>dialog.accept())
   await page.getByRole('button',{name:'Xóa nhóm Đồ đóng gói',exact:true}).click()
+  await page.getByRole('alertdialog').getByRole('button',{name:'Xóa nhóm',exact:true}).click()
   await expect(page.getByRole('button',{name:'Đồ đóng gói',exact:true})).toHaveCount(0)
   await expect(page.getByTestId('inventory-card')).toContainText('Chưa phân loại')
   await page.getByRole('button',{name:'POS',exact:true}).click()
@@ -363,10 +367,10 @@ test('retail checkout decrements stock and renders sold out; retry reuses the bi
   await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
   await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
   await page.getByLabel('Tiền khách đưa').fill('100000')
-  await page.getByRole('button',{name:'Thanh toán',exact:true}).last().click()
+  await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).last().click()
   await expect(page.getByRole('status').filter({hasText:'Thanh toán thất bại'})).toBeVisible()
   options.failCheckout = false
-  await page.getByRole('button',{name:'Thanh toán',exact:true}).last().click()
+  await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).last().click()
   await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công!'})).toBeVisible()
   expect(payments).toHaveLength(2)
   expect(payments[0].p_code).toEqual(payments[1].p_code)
@@ -383,11 +387,138 @@ test('failed receipt reversal preserves the history and product state', async ({
   await page.getByLabel('Tổng tiền nhập',{exact:true}).fill('100000')
   await page.getByRole('button',{name:'Lưu phiếu nhập',exact:true}).click()
   const history = page.getByRole('region',{name:'Lịch sử nhập kho'})
-  page.once('dialog',(dialog)=>dialog.accept())
   await history.getByRole('button',{name:/Xóa phiếu nhập/}).click()
+  await page.getByRole('alertdialog').getByRole('button',{name:'Xóa phiếu',exact:true}).click()
   await expect(page.getByRole('alert').filter({hasText:'hàng của phiếu đã được bán'})).toBeVisible()
   await expect(history.getByRole('button',{name:/Xóa phiếu nhập/})).toHaveCount(1)
   await page.getByRole('button',{name:'Tồn kho',exact:true}).click()
   await expect(page.getByLabel(`Tồn kho ${initialProduct.name}`,{exact:true})).toHaveText('12')
   await expect(page.getByTestId('inventory-cost')).toHaveText('21.667đ')
+})
+
+async function printSpy(page:Page) {
+  await page.addInitScript(()=>{(window as any).__prints=[];window.print=()=>{(window as any).__prints.push(document.getElementById('receipt-print-area')?.textContent)}})
+}
+async function designer(page:Page) {
+  await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+  await page.getByRole('button',{name:'Thiết kế mẫu in',exact:true}).click()
+}
+
+test('custom confirmation supports cancel, Escape, backdrop, focus and performs no native popup',async({page})=>{
+ await fixture(page);await inventory(page)
+ page.on('dialog',()=>{throw new Error('Unexpected native popup')})
+ for(const close of ['cancel','escape','backdrop']) {
+  await page.getByRole('button',{name:'Xóa nhóm Đồ đóng gói',exact:true}).click()
+  const dialog=page.getByRole('alertdialog')
+  await expect(dialog).toBeVisible();await expect(dialog.getByRole('button',{name:'Hủy',exact:true})).toBeFocused()
+  if(close==='cancel')await dialog.getByRole('button',{name:'Hủy',exact:true}).click()
+  else if(close==='escape')await page.keyboard.press('Escape')
+  else await page.getByTestId('confirm-backdrop').click({position:{x:2,y:2}})
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'Đồ đóng gói',exact:true})).toBeVisible()
+ }
+ await page.getByRole('button',{name:`Sửa ${initialProduct.name}`,exact:true}).click()
+ await page.getByRole('button',{name:'Xóa món',exact:true}).click()
+ await expect(page.getByRole('alertdialog')).toContainText('Hóa đơn đã lưu vẫn được giữ lại')
+ await page.getByRole('alertdialog').getByRole('button',{name:'Hủy',exact:true}).click()
+ await expect(page.getByRole('dialog',{name:'Sửa mặt hàng'})).toBeVisible()
+})
+
+test('designer updates live K58 receipt, saves template, and prints only the receipt area',async({page})=>{
+ await printSpy(page);await fixture(page);await designer(page)
+ await page.getByLabel('Tên cửa hàng',{exact:true}).fill('Quán in thử')
+ await page.getByLabel('Địa chỉ',{exact:true}).fill('123 Đường thử')
+ await page.getByLabel('Tên Wifi',{exact:true}).fill('Wifi thử')
+ await page.getByLabel('Mật khẩu Wifi',{exact:true}).fill('test-pass')
+ await page.getByLabel('Khổ giấy',{exact:true}).selectOption('58')
+ const preview=page.getByLabel('Xem trước mẫu hóa đơn')
+ await expect(preview).toContainText('Quán in thử');await expect(preview).toContainText('123 Đường thử');await expect(preview).toContainText('test-pass')
+ await expect(preview.locator('article')).toHaveAttribute('style',/58mm/)
+ await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()
+ await page.getByRole('button',{name:'In thử mẫu này',exact:true}).click()
+ await expect.poll(()=>page.evaluate(()=>(window as any).__prints.length)).toBe(1)
+ await page.emulateMedia({media:'print'})
+ await expect(page.locator('main')).toBeHidden()
+ await expect(page.locator('#receipt-print-area')).toBeVisible()
+ await expect(page.locator('#receipt-print-area')).toContainText('Quán in thử')
+ expect(await page.locator('#receipt-print-area article').evaluate((el)=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ await page.emulateMedia({media:'screen'})
+ await expect(page.locator('main')).toBeVisible()
+ await expect(page.locator('#receipt-print-area')).toBeHidden()
+})
+
+test('offline template save persists locally and survives reload without claiming server sync',async({page})=>{
+ await fixture(page,{settingsOffline:true});await designer(page)
+ await page.getByLabel('Tên cửa hàng',{exact:true}).fill('Mẫu offline')
+ await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu trên thiết bị'})).toBeVisible()
+ await page.reload();await designer(page)
+ await expect(page.getByLabel('Tên cửa hàng',{exact:true})).toHaveValue('Mẫu offline')
+ await expect(page.getByText(/Mẫu đang lưu trên thiết bị, chưa đồng bộ/)).toBeVisible()
+})
+
+test('checkout-and-print persists the bill first; history searches, details and reprint preserve its snapshot',async({page})=>{
+ await printSpy(page)
+ const {payments}=await fixture(page,{stock:2,autoPrint:true})
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ const actions=page.getByRole('dialog',{name:'Thanh toán đơn hàng'})
+ await expect(actions.getByRole('button',{name:'Thanh toán & In hóa đơn',exact:true})).toBeVisible()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await actions.getByRole('button',{name:'Thanh toán & In hóa đơn',exact:true}).click()
+ await expect.poll(()=>page.evaluate(()=>(window as any).__prints.length)).toBe(1)
+ expect(payments).toHaveLength(1)
+ await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+ await page.getByLabel('Tìm hóa đơn',{exact:true}).fill(initialProduct.name)
+ await page.getByRole('button',{name:new RegExp(payments[0].p_code)}).click()
+ await expect(page.getByRole('article',{name:`Hóa đơn ${payments[0].p_code}`})).toContainText('35.000')
+ await page.getByRole('button',{name:'In lại hóa đơn',exact:true}).click()
+ await expect.poll(()=>page.evaluate(()=>(window as any).__prints.length)).toBe(2)
+ expect(payments).toHaveLength(1)
+ await page.getByLabel('Tìm hóa đơn',{exact:true}).fill('Không tồn tại')
+ await expect(page.getByText('Không có hóa đơn phù hợp.',{exact:true})).toBeVisible()
+})
+
+test('explicit no-print overrides auto-print; failed checkout never opens print',async({page})=>{
+ await printSpy(page)
+ await fixture(page,{autoPrint:true})
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công'})).toBeVisible()
+ expect(await page.evaluate(()=>(window as any).__prints.length)).toBe(0)
+ await fixture(page,{failCheckout:true})
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Thanh toán & In hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Thanh toán thất bại'})).toBeVisible()
+ expect(await page.evaluate(()=>(window as any).__prints.length)).toBe(0)
+})
+
+test('print failure after successful payment never charges again or claims payment failed',async({page})=>{
+ const {payments}=await fixture(page)
+ await page.evaluate(()=>{window.print=()=>{throw new Error('Printer unavailable')}})
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Thanh toán & In hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã thanh toán, chưa in được'})).toBeVisible()
+ expect(payments).toHaveLength(1)
+ await expect(page.getByRole('dialog',{name:'Thanh toán đơn hàng'})).toHaveCount(0)
+ await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+ await expect(page.getByRole('button',{name:new RegExp(payments[0].p_code)})).toBeVisible()
+})
+
+test('QR toggle uses configured bank and bill amount; disabled QR never prints a placeholder account',async({page})=>{
+ await page.addInitScript(()=>localStorage.setItem('vietqr-config',JSON.stringify({bankId:'MB',accountNo:'12345678',accountName:'TEST ONLY'})))
+ await fixture(page);await designer(page)
+ const preview=page.getByLabel('Xem trước mẫu hóa đơn')
+ await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveCount(0)
+ await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).check()
+ await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/MB-12345678.*amount=65000.*IN-THU/)
+ await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).uncheck()
+ await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveCount(0)
 })

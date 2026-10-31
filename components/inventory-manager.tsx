@@ -7,6 +7,7 @@ import { matchesProduct, receiptCost, movingAverageCost, isLowStock, isRetail } 
 import type { Product } from '@/lib/product'
 import { useBarcodeScanner } from '@/lib/hooks/use-barcode-scanner'
 import { CameraScanner, ScanButton } from './barcode-scanner'
+import { useConfirm } from './confirm-dialog'
 import CategoryManager from './category-manager'
 import MoneyInput from './money-input'
 import StockImportHistory from './stock-import-history'
@@ -19,6 +20,7 @@ const panelClass = 'min-w-0 rounded-2xl border border-stone-200 bg-white p-4 sha
 const describeError = (error: unknown) => error instanceof Error ? error.message : (error as { message?: string })?.message ?? 'Không thể lưu dữ liệu. Vui lòng thử lại.'
 
 export default function InventoryManager({ products, onChange, categories, onCreateCategory, onDeleteCategory, onReceived }: Props) {
+  const confirm = useConfirm()
   const db = getSupabaseClient()
   const history = useStockImports()
   const [tab, setTab] = useState<'stock' | 'receiving' | 'audit'>('stock')
@@ -85,8 +87,8 @@ export default function InventoryManager({ products, onChange, categories, onCre
     onChange(editing.id ? products.map((item) => item.id === next.id ? saved : item) : [...products, saved])
     setEditing(null); setMessage('Đã lưu mặt hàng.')
   })
-  const deleteProduct = () => {
-    if (!editing || !window.confirm(`Xóa mặt hàng “${editing.name}”?`)) return
+  const deleteProduct = async () => {
+    if (!editing || !await confirm({ title: 'Xóa mặt hàng?', description: `Mặt hàng “${editing.name}” sẽ bị xóa khỏi danh sách bán hàng và tồn kho. Hóa đơn đã lưu vẫn được giữ lại.`, confirmLabel: 'Xóa mặt hàng' })) return
     void action(async () => {
       const { error } = await db.from('pos_products').delete().eq('id', editing.id).select('id').single()
       if (error) throw error
@@ -109,8 +111,8 @@ export default function InventoryManager({ products, onChange, categories, onCre
     setReceiptQty(''); setReceiptTotal(''); receiptAttempt.current = null
     setMessage('Đã lưu phiếu nhập, cập nhật tồn kho và giá vốn.'); onReceived()
   })
-  const voidImport = (row: StockImport) => {
-    if (!window.confirm(`Xóa phiếu nhập ${row.product_name} × ${row.quantity} và hoàn tác tồn kho, giá vốn, khoản chi?`)) return
+  const voidImport = async (row: StockImport) => {
+    if (!await confirm({ title: 'Hoàn tác phiếu nhập?', description: `Xóa phiếu nhập ${row.product_name} × ${row.quantity} sẽ hoàn tác tồn kho, giá vốn và khoản chi. Hệ thống sẽ chặn nếu hàng đã bán không còn đủ để hoàn tác.`, confirmLabel: 'Xóa phiếu' })) return
     void action(async () => {
       const { data, error } = await db.rpc('pos_void_stock_import', { p_id: row.id })
       if (error) throw new Error(`Không xóa được phiếu: ${error.message}`)

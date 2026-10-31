@@ -10,7 +10,11 @@ import ReportsView from './reports-view'
 import { parseTransactionItems } from '@/lib/transaction-items'
 import InventoryManager from './inventory-manager'
 
-type Product = { id: string; name: string; category: string; productType?: 'retail' | 'fnb' | 'ingredient'; price: number; cost?: number; costPrice?: number; barcode?: string; imageUrl?: string; stock?: number; accent: string; tag: string; brand?: string; distributor?: string; unit?: string }
+import type { Product } from '@/lib/product'
+import { useCategories } from '@/lib/hooks/use-categories'
+import { useBarcodeScanner } from '@/lib/hooks/use-barcode-scanner'
+import { CameraScanner, ScanButton } from './barcode-scanner'
+
 type CartLine = Product & { quantity: number; note?: string }
 type Transaction = { code: string; dateTime: string; items: string; total: number; method: string; soldItems: { name: string; quantity: number; price?: number; category?: string }[] }
 
@@ -28,13 +32,16 @@ export function PosDashboard() {
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports'>('pos')
   const [products, setProducts] = useState<Product[]>(emptyProducts)
   const [cart, setCart] = useState<CartLine[]>([])
+  const [cartHydrated, setCartHydrated] = useState(false)
+  const cartSnapshot = useRef('')
+  const cartWriteQueue = useRef<Promise<void>>(Promise.resolve())
   const [cartTabs, setCartTabs] = useState<CartLine[][]>([cart])
   const [activeCartTab, setActiveCartTab] = useState(0)
   const [discount, setDiscount] = useState(0)
   const [discountOpen, setDiscountOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const categoryLabels = ['Đồ đóng gói', 'Mì & Cơm', 'Gà & Ăn vặt', 'Đồ uống'] as const
-  const [productFilter, setProductFilter] = useState<'all' | typeof categoryLabels[number]>('all')
+  const [productFilter, setProductFilter] = useState('')
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [scannerToast, setScannerToast] = useState<{ message: string; error?: boolean } | null>(null)
   const [toast, setToast] = useState<{ title: string; description: string; error?: boolean } | null>(null)
   const showToast = (nextToast: { title: string; description: string; error?: boolean }) => { setToast(nextToast); window.setTimeout(() => setToast(null), 2500) }
@@ -48,15 +55,31 @@ export function PosDashboard() {
   const [revenue, setRevenue] = useState(12845000)
   const [bills, setBills] = useState(342)
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>([])
-  const posProducts = products.map((product) => ({ ...product, ...(inventoryProducts.find((inventoryProduct) => inventoryProduct.id === product.id) ?? {}) }))
+  const posProducts = inventoryProducts
+  const { categories: categoryLabels, createCategory, categoryError } = useCategories(inventoryProducts)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const supabase = getSupabaseClient()
   const db = supabase as any
-  const { data: savedProducts } = useSWR('pos-products', async () => { try { const { data, error } = await db.from('pos_products').select('*').order('name').limit(1000); if (error) throw error; console.log('Dữ liệu fetch thành công:', data); return data ?? [] } catch (error) { console.error('[v0] Failed to fetch pos_products:', error); return [] } })
-  useEffect(() => { if (!savedProducts) return; const mapped = savedProducts.map((product: any) => ({ id: product.id, name: String(product.name ?? '').trim(), category: String(product.category ?? product.tag ?? '').trim(), productType: product.product_type, price: Number(product.price) || 0, cost: Number(product.cost) || Number(product.cost_price) || 0, costPrice: Number(product.cost_price) || Number(product.cost) || 0, barcode: String(product.barcode ?? '').trim(), imageUrl: product.image_url ?? '', stock: Number(product.stock) || 0, accent: product.accent ?? 'bg-[#FFF5E4] text-[#A8650B]', tag: product.tag ?? '', brand: product.brand ?? '', distributor: product.distributor ?? '' } satisfies Product)); const uniqueData: Product[] = []; const seenNames = new Set<string>(); mapped.forEach((item: Product) => { const cleanName = item.name.trim().toLowerCase(); if (!seenNames.has(cleanName)) { seenNames.add(cleanName); uniqueData.push(item) } }); setProducts(uniqueData); setInventoryProducts(uniqueData) }, [savedProducts])
+  const { data: savedProducts, error: productsError } = useSWR('pos-products', async () => {
+    const { data, error } = await db.from('pos_products').select('*').order('name').limit(1000)
+    if (error) throw error
+    return data ?? []
+  })
+  useEffect(() => {
+    if (!savedProducts) return
+    const mapped: Product[] = savedProducts.map((product: any) => ({
+      id: String(product.id), name: String(product.name ?? '').trim(), category: String(product.category ?? product.tag ?? '').trim(),
+      productType: product.product_type, price: Number(product.price) || 0,
+      cost: Number(product.cost_price ?? product.cost ?? 0), costPrice: Number(product.cost_price ?? product.cost ?? 0),
+      barcode: String(product.barcode ?? '').trim(), imageUrl: product.image_url ?? '', stock: Number(product.stock) || 0,
+      accent: product.accent ?? 'bg-[#FFF5E4] text-[#A8650B]', tag: product.tag ?? '', brand: product.brand ?? '', distributor: product.distributor ?? '',
+    }))
+    setProducts(mapped); setInventoryProducts(mapped)
+  }, [savedProducts])
   const [expenses, setExpenses] = useState<{ id: string; description: string; amount: number; spentAt: string }[]>([])
-  const { data: savedExpenses } = useSWR('pos-expenses', async () => {
-    const { data } = await db.from('pos_expenses').select('id, description, amount, spent_at').order('spent_at', { ascending: false })
+  const { data: savedExpenses, mutate: refreshExpenses } = useSWR('pos-expenses', async () => {
+    const { data, error } = await db.from('pos_expenses').select('id, description, amount, spent_at').order('spent_at', { ascending: false })
+    if (error) throw error
     return data ?? []
   })
   useEffect(() => { if (savedExpenses) setExpenses(savedExpenses.map((expense: { id: string; description: string; amount: number; spent_at: string }) => ({ id: expense.id, description: expense.description, amount: expense.amount, spentAt: expense.spent_at }))) }, [savedExpenses])
@@ -67,18 +90,20 @@ export function PosDashboard() {
   db.from('pos_cart_lines').select('product_id, quantity'),
   db.from('pos_transactions').select('*').order('date_time', { ascending: false }).limit(1000),
   ])
-  if (cartError) console.error('[v0] Failed to fetch pos_cart_lines:', cartError)
+  if (cartError) throw cartError
   if (transactionError) console.error('[v0] Failed to fetch pos_transactions:', transactionError)
   return { savedCart: savedCart ?? [], savedTransactions: savedTransactions ?? [] }
   })
 
   useEffect(() => {
-    if (!persistedState) return
+    if (!persistedState || !savedProducts || cartHydrated) return
     const restoredCart = persistedState.savedCart.map((line) => {
       const product = posProducts.find((candidate) => candidate.id === line.product_id)
       return product ? { ...product, quantity: line.quantity } : null
     }).filter((line): line is CartLine => Boolean(line))
-    if (restoredCart.length) setCart(restoredCart)
+    setCart(restoredCart)
+    cartSnapshot.current = JSON.stringify(restoredCart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
+    setCartHydrated(true)
     if (persistedState.savedTransactions.length) {
       setTransactions(persistedState.savedTransactions.map((transaction) => ({
         code: transaction.code,
@@ -89,25 +114,58 @@ export function PosDashboard() {
         soldItems: parseTransactionItems({ items: transaction.items, soldItems: transaction.sold_items }, products),
       })))
     }
-  }, [persistedState])
+  }, [persistedState, savedProducts, cartHydrated])
 
   useEffect(() => {
-    void db.from('pos_cart_lines').delete().neq('product_id', '')
-    if (safeCart.length) void db.from('pos_cart_lines').upsert(safeCart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
-  }, [cart, supabase])
+    if (!cartHydrated) return
+    const lines = cart.map((line) => ({ product_id: line.id, quantity: line.quantity }))
+    const snapshot = JSON.stringify(lines)
+    if (cartSnapshot.current === snapshot) return
+    cartSnapshot.current = snapshot
+    cartWriteQueue.current = cartWriteQueue.current.catch(() => {}).then(async () => {
+      const { error: deleteError } = await db.from('pos_cart_lines').delete().neq('product_id', '')
+      if (deleteError) throw deleteError
+      if (lines.length) {
+        const { error } = await db.from('pos_cart_lines').upsert(lines)
+        if (error) throw error
+      }
+    }).catch(() => {
+      cartSnapshot.current = ''
+      showToast({ title: 'Chưa đồng bộ được giỏ hàng', description: 'Vui lòng kiểm tra kết nối Supabase.', error: true })
+    })
+  }, [cart, cartHydrated, supabase])
 
   const safeCart = useMemo(() => Array.isArray(cart) ? cart : [], [cart])
   useEffect(() => { setCartTabs((tabs) => { const currentTab = Array.isArray(tabs[activeCartTab]) ? tabs[activeCartTab] : []; if (JSON.stringify(currentTab) === JSON.stringify(safeCart)) return tabs; return tabs.map((tab, index) => index === activeCartTab ? safeCart : (Array.isArray(tab) ? tab : [])) }) }, [safeCart, activeCartTab])
-  useEffect(() => { let buffer = ''; let lastKeyAt = 0; let timer: ReturnType<typeof setTimeout>; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'F9') { event.preventDefault(); if (safeCart.length > 0) setPaymentOpen(true); return } const target = event.target as HTMLElement | null; if (target?.matches('input, textarea, select, [contenteditable="true"]')) return; if (event.key === 'Enter') { const code = buffer.trim(); const duration = lastKeyAt ? performance.now() - lastKeyAt : 0; buffer = ''; lastKeyAt = 0; if (code && duration < 120) { const product = posProducts.find((item) => item.barcode === code); if (product) { addToCart(product); setScannerToast({ message: `Đã thêm ${product.name}` }) } else setScannerToast({ message: `Chưa nhận diện được mã vạch ${code}`, error: true }); window.setTimeout(() => setScannerToast(null), 2200) } return } if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) { const now = performance.now(); if (lastKeyAt && now - lastKeyAt >= 50) buffer = ''; buffer += event.key; lastKeyAt = now; clearTimeout(timer); timer = setTimeout(() => { buffer = ''; lastKeyAt = 0 }, 250) } }; window.addEventListener('keydown', onKeyDown); return () => { clearTimeout(timer); window.removeEventListener('keydown', onKeyDown) } }, [safeCart.length, posProducts])
+  const scanProduct = (code: string) => {
+    setCameraOpen(false)
+    if (!cartHydrated) { setScannerToast({ message: 'Chưa tải xong giỏ hàng. Vui lòng kiểm tra kết nối và thử lại.', error: true }); return }
+    const matches = posProducts.filter((product) => product.barcode === code)
+    if (matches.length === 1) {
+      addToCart(matches[0])
+      setScannerToast({ message: `Đã thêm ${matches[0].name}` })
+      setQuery('')
+    } else setScannerToast({ message: matches.length > 1 ? 'Mã trùng ở nhiều sản phẩm. Hãy kiểm tra lại.' : `Không tìm thấy sản phẩm cho mã ${code}`, error: true })
+    window.setTimeout(() => setScannerToast(null), 2500)
+  }
+  useBarcodeScanner(scanProduct, activeTab === 'pos' && !paymentOpen && !cameraOpen && !cartSheetOpen)
+  useEffect(() => {
+    if (activeTab !== 'pos' || paymentOpen || cameraOpen) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'F9' && safeCart.length) { event.preventDefault(); setPaymentOpen(true) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeTab, paymentOpen, cameraOpen, safeCart.length])
+
   const subtotal = useMemo(() => safeCart.reduce((sum, line) => sum + line.price * line.quantity, 0), [safeCart])
   const total = Math.max(0, subtotal - discount)
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
   const change = received - total
-  const filteredProducts = posProducts.filter((product) => { const matchesQuery = product.name.toLowerCase().includes(query.toLowerCase()) || (product.barcode ?? '').includes(query); const matchesFilter = productFilter === 'all' || product.category === productFilter; return matchesQuery && matchesFilter })
+  const filteredProducts = posProducts.filter((product) => { const matchesQuery = product.name.toLowerCase().includes(query.toLowerCase()) || (product.barcode ?? '').includes(query); const matchesFilter = productFilter === '' || product.category === productFilter; return matchesQuery && matchesFilter })
   const billCode = `HD${String(bills + 1).padStart(4, '0')}`
   const suggestions = [total, Math.ceil(total / 1000) * 1000, 100000, 200000, 500000, 1000000].filter((value, index, list) => value >= total && value > 0 && list.indexOf(value) === index).slice(0, 5)
 
   function addToCart(product: Product) {
+    if (!cartHydrated) { showToast({ title: 'Đang tải giỏ hàng', description: 'Vui lòng chờ đồng bộ giỏ hàng từ Supabase.', error: true }); return }
     setCart((current) => {
       const safeCurrent = Array.isArray(current) ? current : []
       const found = safeCurrent.find((line) => line.id === product.id)
@@ -175,26 +233,29 @@ export function PosDashboard() {
       <header className="border-b border-[#E7DED3] bg-white dark:bg-[#1C1714] dark:border-stone-800 dark:bg-[#1C1714] dark:border-stone-800">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-5 py-4 lg:px-8">
           <div className="flex items-center gap-3"><img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/S-4-22-2025-aCrnl9lthP9ZZ46IRiWu0DnzVbIsML.png" alt="SangHai Overnight" className="size-11 rounded-xl object-cover" /><div><p className="text-lg font-bold tracking-tight">SangHai Overnight</p><p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#8b959e]">Convenience & F&B</p></div></div>
-          <div className="hidden items-center gap-6 text-sm text-[#7d8790] dark:text-stone-300 md:flex"><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-[#D97706]" /> Hệ thống đang hoạt động</span><span className="h-5 w-px bg-[#E7DED3]" /><span>Admin</span><button type="button" aria-label={darkMode ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} onClick={() => setDarkMode((value) => !value)} className="grid size-9 place-items-center rounded-full border border-[#E7DED3] bg-white dark:bg-[#1C1714] dark:border-stone-800 dark:bg-[#1C1714] dark:border-stone-800 text-[#D97706] shadow-sm">{darkMode ? <Sun size={16} /> : <Moon size={16} />}</button><div className="grid size-9 place-items-center rounded-full bg-[#F5E6CC] text-sm font-bold text-[#9c6c31]">AD</div></div>
+          <div className="hidden items-center gap-6 text-sm text-[#7d8790] dark:text-stone-300 md:flex"><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-[#D97706]" /> {productsError ? 'Không kết nối được Supabase' : savedProducts ? 'Đã kết nối Supabase' : 'Đang kết nối Supabase...'}</span><span className="h-5 w-px bg-[#E7DED3]" /><span>Admin</span><button type="button" aria-label={darkMode ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} onClick={() => setDarkMode((value) => !value)} className="grid size-9 place-items-center rounded-full border border-[#E7DED3] bg-white dark:bg-[#1C1714] dark:border-stone-800 dark:bg-[#1C1714] dark:border-stone-800 text-[#D97706] shadow-sm">{darkMode ? <Sun size={16} /> : <Moon size={16} />}</button><div className="grid size-9 place-items-center rounded-full bg-[#F5E6CC] text-sm font-bold text-[#9c6c31]">AD</div></div>
         </div>
       </header>
 
       <div className="mx-auto max-w-[1500px] px-5 py-5 lg:px-8">
-        <nav className="mb-6 flex gap-1 rounded-xl border border-[#e9edef] bg-white dark:bg-[#1C1714] dark:border-stone-800 p-1.5 shadow-sm md:w-fit">
-          {([['pos', 'POS', CreditCard], ['inventory', 'Kho hàng', Package], ['reports', 'Báo cáo', BarChart3]] as const).map(([key, label, Icon]) => <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition ${activeTab === key ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm' : 'text-[#7b858e] hover:bg-[#f3f6f5] dark:hover:border-amber-500/50'}`}><Icon />{label}</button>)}
+        <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-[#e9edef] bg-white dark:bg-[#1C1714] dark:border-stone-800 p-1.5 shadow-sm md:w-fit">
+          {([['pos', 'POS', CreditCard], ['inventory', 'Kho hàng', Package], ['reports', 'Báo cáo', BarChart3]] as const).map(([key, label, Icon]) => <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${activeTab === key ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm' : 'text-[#7b858e] hover:bg-[#f3f6f5] dark:hover:border-amber-500/50'}`}><Icon />{label}</button>)}
         </nav>
 
+        {productsError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">Không tải được sản phẩm từ Supabase. Kiểm tra kết nối và quyền truy cập, rồi thử lại.</p>}
+        {categoryError && <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Chưa tải được danh mục đã lưu. Bộ lọc hiện dùng nhóm từ sản phẩm; cần kiểm tra kết nối hoặc migration danh mục.</p>}
         {activeTab === 'pos' && <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_450px]">
-          <section className="min-w-0"><div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm font-medium text-[#78716C] dark:text-stone-400">Thứ Hai, 27 tháng 10, 2026</p><h1 className="text-2xl font-bold tracking-tight">Bán hàng</h1></div><div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a4adb4]" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm món, sản phẩm..." className="h-11 w-full rounded-xl border border-[#e1e6e9] bg-white dark:bg-[#1C1714] dark:border-stone-800 pl-10 pr-4 text-sm outline-none transition focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/10" /></div></div><div className="mb-4 flex items-center justify-between"><h2 className="text-sm font-bold">Tất cả sản phẩm <span className="ml-1 font-normal text-[#9aa3aa]">({filteredProducts.length})</span></h2><div className="flex max-w-full flex-wrap gap-1.5 pb-1"><span className="sr-only">Lọc danh mục sản phẩm</span>{[ ['all', 'Tất cả'], ...categoryLabels.map((label) => [label, label] as const) ].map(([value, label]) => <button key={value} type="button" onClick={() => setProductFilter(value as typeof productFilter)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${productFilter === value ? 'border-amber-600 bg-amber-600 text-white' : 'border-[#E7DED3] bg-white text-[#78716C] hover:border-amber-500 dark:border-stone-800 dark:bg-[#1C1714] dark:text-stone-300'}`}>{label}</button>)}</div></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">{filteredProducts.map((product) => <button key={product.id} onClick={() => addToCart(product)} className="group rounded-2xl border border-[#e8edef] bg-white dark:bg-[#1A1512] dark:border-stone-800/80 p-3 text-left text-[#2A1810] dark:text-stone-100 shadow-sm transition hover:-translate-y-0.5 hover:border-[#a5cebe] dark:hover:border-amber-500/50 hover:shadow-md"><div className={`mb-2 flex h-20 items-center justify-center overflow-hidden rounded-xl ${product.accent}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span className="text-center text-3xl font-black tracking-tighter opacity-80">{product.category === 'recipe' ? 'F&B' : product.name.slice(0, 2).toUpperCase()}</span>}</div><p className="mb-1 truncate text-sm font-bold">{product.name}</p><p className="mb-3 text-[11px] text-[#8d979f] dark:text-stone-400">Kho còn: {product.stock ?? 20}</p><div className="flex items-center justify-between"><span className="text-sm font-bold text-[#D97706]">{money(product.price)}</span><span className="grid size-7 place-items-center rounded-lg bg-[#eff7f3] text-[#D97706] transition group-hover:bg-[#D97706] group-hover:text-white"><Plus /></span></div></button>)}</div></section>
+          <section className="min-w-0"><div className="mb-3"><ScanButton onClick={() => setCameraOpen(true)} /></div><div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-1 text-sm font-medium text-[#78716C] dark:text-stone-400">Thứ Hai, 27 tháng 10, 2026</p><h1 className="text-2xl font-bold tracking-tight">Bán hàng</h1></div><div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#a4adb4]" /><input aria-label="Tìm sản phẩm POS" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && query.trim()) { event.preventDefault(); scanProduct(query.trim()) } }} placeholder="Tên hàng hoặc Barcode / QR" className="h-11 w-full rounded-xl border border-[#e1e6e9] bg-white dark:bg-[#1C1714] dark:border-stone-800 pl-10 pr-4 text-sm outline-none transition focus:border-[#D97706] focus:ring-2 focus:ring-[#D97706]/10" /></div></div><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-sm font-bold">Tất cả sản phẩm <span className="ml-1 font-normal text-[#9aa3aa]">({filteredProducts.length})</span></h2><div className="flex max-w-full flex-wrap gap-1.5 pb-1"><span className="sr-only">Lọc danh mục sản phẩm</span>{[ ['', 'Tất cả'], ...categoryLabels.map((label) => [label, label] as const) ].map(([value, label]) => <button key={value} type="button" onClick={() => setProductFilter(value as typeof productFilter)} className={`max-w-full break-words rounded-full border px-3 py-1.5 text-xs font-semibold transition ${productFilter === value ? 'border-amber-600 bg-amber-600 text-white' : 'border-[#E7DED3] bg-white text-[#78716C] hover:border-amber-500 dark:border-stone-800 dark:bg-[#1C1714] dark:text-stone-300'}`}>{label}</button>)}</div></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">{filteredProducts.map((product) => <button key={product.id} onClick={() => addToCart(product)} className="group rounded-2xl border border-[#e8edef] bg-white dark:bg-[#1A1512] dark:border-stone-800/80 p-3 text-left text-[#2A1810] dark:text-stone-100 shadow-sm transition hover:-translate-y-0.5 hover:border-[#a5cebe] dark:hover:border-amber-500/50 hover:shadow-md"><div className={`mb-2 flex h-20 items-center justify-center overflow-hidden rounded-xl ${product.accent}`}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span className="text-center text-3xl font-black tracking-tighter opacity-80">{product.category === 'recipe' ? 'F&B' : product.name.slice(0, 2).toUpperCase()}</span>}</div><p className="mb-1 truncate text-sm font-bold">{product.name}</p><p className="mb-3 text-[11px] text-[#8d979f] dark:text-stone-400">Kho còn: {product.stock ?? 20}</p><div className="flex items-center justify-between"><span className="text-sm font-bold text-[#D97706]">{money(product.price)}</span><span className="grid size-7 place-items-center rounded-lg bg-[#eff7f3] text-[#D97706] transition group-hover:bg-[#D97706] group-hover:text-white"><Plus /></span></div></button>)}</div></section>
           <CartPanel cart={safeCart} subtotal={subtotal} discount={discount} setDiscount={setDiscount} discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} cartTabs={cartTabs} setCartTabs={setCartTabs} activeCartTab={activeCartTab} setActiveCartTab={(index) => { setCartTabs((tabs) => tabs.map((tab, i) => i === activeCartTab ? cart : tab)); setCart(Array.isArray(cartTabs[index]) ? cartTabs[index] : []); setActiveCartTab(index) }} setCart={setCart} updateQuantity={updateQuantity} expandedNoteId={expandedNoteId} onToggleNote={(id) => setExpandedNoteId((current) => current === id ? null : id)} onNoteChange={(id, note) => setCart((current) => current.map((line) => line.id === id ? { ...line, note } : line))} onCheckout={() => cart.length > 0 && setPaymentOpen(true)} />
         </div>}
 
-        {activeTab === 'inventory' && <InventoryManager products={inventoryProducts} onChange={setInventoryProducts} />}
-        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView transactions={transactions} products={inventoryProducts} expenses={expenses} onExpenseAdded={(expense) => setExpenses((current) => [expense, ...current])} onDeleteExpense={(id) => setExpenses((current) => current.filter((expense) => expense.id !== id))} onOpenInventory={() => setActiveTab('inventory')} /></div><TransactionHistory transactions={transactions} products={inventoryProducts} onCancel={(code) => { const transaction = transactions.find((item) => item.code === code); if (transaction) { setTransactions((current) => current.filter((item) => item.code !== code)); setInventoryProducts((current) => current.map((product) => { const line = transaction.soldItems.find((item) => item.name === product.name); return line && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + line.quantity } : product })) } }} onRefund={(updated, itemName, quantity) => { setTransactions((current) => current.map((transaction) => transaction.code === updated.code ? updated : transaction)); setInventoryProducts((current) => current.map((product) => product.name === itemName && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + quantity } : product)) }} /></div>}
+        {activeTab === 'inventory' && <InventoryManager products={inventoryProducts} onChange={setInventoryProducts} categories={categoryLabels} onCreateCategory={createCategory} onReceived={() => { void refreshExpenses() }} />}
+        {activeTab === 'reports' && <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]"><div className="min-w-0 reports-layout"><ReportsView categories={categoryLabels} transactions={transactions} products={inventoryProducts} expenses={expenses} onExpenseAdded={(expense) => setExpenses((current) => [expense, ...current])} onDeleteExpense={(id) => setExpenses((current) => current.filter((expense) => expense.id !== id))} onOpenInventory={() => setActiveTab('inventory')} /></div><TransactionHistory transactions={transactions} products={inventoryProducts} onCancel={(code) => { const transaction = transactions.find((item) => item.code === code); if (transaction) { setTransactions((current) => current.filter((item) => item.code !== code)); setInventoryProducts((current) => current.map((product) => { const line = transaction.soldItems.find((item) => item.name === product.name); return line && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + line.quantity } : product })) } }} onRefund={(updated, itemName, quantity) => { setTransactions((current) => current.map((transaction) => transaction.code === updated.code ? updated : transaction)); setInventoryProducts((current) => current.map((product) => product.name === itemName && product.productType === 'retail' ? { ...product, stock: (product.stock ?? 0) + quantity } : product)) }} /></div>}
       </div>
 
       {activeTab === 'pos' && <><div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-2 border-t border-stone-200 bg-white p-3 shadow-2xl dark:border-stone-800 dark:bg-[#1C1714] md:hidden"><div className="flex min-w-0 items-center gap-2"><div className="relative"><ShoppingBag className="size-5 text-amber-600" /><span className="absolute -right-2 -top-2 min-w-4 rounded-full bg-amber-600 px-1 text-center text-[10px] font-bold text-white">{safeCart.reduce((sum, line) => sum + line.quantity, 0)}</span></div><strong className="truncate text-base text-amber-600">{money(total)}</strong><button type="button" onClick={() => { if (cartTabs.length < 3) { setCartTabs((tabs) => [...tabs, []]); setCart([]); setActiveCartTab(cartTabs.length) } }} className="rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">Đơn {Math.min(cartTabs.length + 1, 3)} +</button></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => setCartSheetOpen(true)} className="rounded-lg border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700">Xem giỏ</button><button type="button" disabled={!safeCart.length} onClick={() => setPaymentOpen(true)} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Thanh toán</button></div></div>{cartSheetOpen && <div className="fixed inset-0 z-50 bg-black/40 md:hidden" onClick={() => setCartSheetOpen(false)}><div className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto" onClick={(event) => event.stopPropagation()}><CartPanel cart={safeCart} subtotal={subtotal} discount={discount} setDiscount={setDiscount} discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} cartTabs={cartTabs} setCartTabs={setCartTabs} activeCartTab={activeCartTab} setActiveCartTab={(index) => { setCartTabs((tabs) => tabs.map((tab, i) => i === activeCartTab ? cart : tab)); setCart(Array.isArray(cartTabs[index]) ? cartTabs[index] : []); setActiveCartTab(index) }} setCart={setCart} updateQuantity={updateQuantity} expandedNoteId={expandedNoteId} onToggleNote={(id) => setExpandedNoteId((current) => current === id ? null : id)} onNoteChange={(id, note) => setCart((current) => current.map((line) => line.id === id ? { ...line, note } : line))} onCheckout={() => { setCartSheetOpen(false); if (cart.length > 0) setPaymentOpen(true) }} mobile /></div></div>}</>}
 
+      {cameraOpen && activeTab === 'pos' && <CameraScanner onScan={scanProduct} onClose={() => setCameraOpen(false)} />}
       {paymentOpen && <PaymentModal items={safeCart} subtotal={total} method={paymentMethod} setMethod={setPaymentMethod} received={received} cashReceived={cashReceived} setCashReceived={(value) => setCashReceived(formatCashInput(value))} change={change} suggestions={suggestions} billCode={billCode} onClose={() => setPaymentOpen(false)} onComplete={completePayment} />}
     </main>
   )

@@ -14,3 +14,8 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+# Local checks and generated Next.js declarations
+playwright-report/
+test-results/
+*.tsbuildinfo
+next-env.d.ts

@@ -24,3 +24,14 @@ test('TC uses visits; revenue and average remain currency', () => {
   assert.equal(metricLabel(12, 'revenue'), '12đ')
   assert.equal(metricLabel(12, 'average'), '12đ')
 })
+
+test('business type is determined only by explicit is_imported, never category or zero stock', async () => {
+  const { isRetail, isLowStock, stockProblem, movingAverageCost } = await import('../lib/catalog.ts')
+  assert.equal(isLowStock({ is_imported: false, stock: 0 }), false)
+  assert.equal(isLowStock({ is_imported: true, stock: 5 }), true)
+  assert.equal(isLowStock({ is_imported: true, stock: 6 }), false)
+  assert.equal(isRetail({ stock: 0 }), false)
+  assert.equal(movingAverageCost(10,6000,5,45000),7000)
+  assert.equal(stockProblem([{ id:'p',quantity:5 }],[{ id:'p',is_imported:false,stock:0 }]),null)
+  assert.match(stockProblem([{ id:'p',quantity:2 },{ id:'p',quantity:2 }],[{ id:'p',name:'P',is_imported:true,stock:3 }]),/chỉ còn 3/)
+})

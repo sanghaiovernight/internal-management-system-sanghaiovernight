@@ -4,7 +4,7 @@ import { createElement, useMemo, useState } from 'react'
 import { Search, Plus, Trash2, BarChart3, TrendingUp, PieChart as PieChartIcon, Wallet, Users, Receipt, PackageSearch, FileWarning } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { metricLabel } from '@/lib/catalog'
+import { metricLabel, isLowStock } from '@/lib/catalog'
 
 const COLORS = ['#f97316', '#fb923c', '#f59e0b', '#10b981', '#6366f1']
 const money = (value: number) => `${Math.round(value).toLocaleString('vi-VN')}đ`
@@ -12,7 +12,7 @@ type Metric = 'revenue' | 'count' | 'average'
 type ChartKind = 'bar' | 'line' | 'pie'
 type Period = 'today' | 'yesterday' | 'week' | 'month' | 'all'
 export type ReportTransaction = { code: string; dateTime: string; total: number; method: string; soldItems: { name: string; quantity: number }[] }
-export type ReportProduct = { id: string; name: string; category?: string; price: number; stock?: number }
+export type ReportProduct = { id: string; name: string; category?: string; price: number; stock?: number; is_imported?: boolean | null }
 export type ReportExpense = { id: string; description: string; amount: number; spentAt: string }
 
 type Props = { categories: string[]; transactions: ReportTransaction[]; products: ReportProduct[]; expenses: ReportExpense[]; onExpenseAdded: (expense: ReportExpense) => void; onOpenInventory: () => void; onDeleteExpense?: (id: string) => void }
@@ -32,7 +32,7 @@ export default function ReportsView({ categories, transactions, products, expens
   const visibleChart = compact ? chartData.filter((item, index, rows) => item.value > 0 || rows[index - 1]?.value > 0 || rows[index + 1]?.value > 0) : chartData; const donutData = visibleChart.filter((item) => item.value > 0); const maxValue = Math.max(...visibleChart.map((item) => item.value), 1)
   const itemRows = useMemo(() => { const result = filtered.flatMap((transaction) => transaction.soldItems || []).reduce<Record<string, number>>((acc, item) => { acc[item.name] = (acc[item.name] || 0) + item.quantity; return acc }, {}); return Object.entries(result).map(([name, quantity]) => ({ name, quantity, revenue: quantity * (products.find((product) => product.name === name)?.price || 0) })).sort((a, b) => b.quantity - a.quantity).slice(0, 8) }, [filtered, products])
   const categoryRows = useMemo(() => { const groups = products.reduce<Record<string, ReportProduct[]>>((acc, product) => { const category = product.category || 'Khác'; (acc[category] ||= []).push(product); return acc }, {}); return Object.entries(groups).map(([name, group]) => { const names = new Set(group.map((product) => product.name)); const sold = filtered.flatMap((transaction) => transaction.soldItems || []).filter((item) => names.has(item.name)); return { name, quantity: sold.reduce((sum, item) => sum + item.quantity, 0), revenue: sold.reduce((sum, item) => sum + item.quantity * (group.find((product) => product.name === item.name)?.price || 0), 0) } }).filter((row) => row.quantity > 0).sort((a, b) => b.quantity - a.quantity).slice(0, 8) }, [products, filtered])
-  const menuData = menuTab === 'items' ? itemRows : categoryRows; const totalExpenses = expenses.reduce((sum, item) => sum + item.amount, 0); const cash = filtered.filter((item) => item.method === 'Tiền mặt').reduce((sum, item) => sum + item.total, 0); const transfer = revenue - cash; const lowStock = products.filter((product) => (product.stock || 0) <= 5 && product.name.toLowerCase().includes(query.toLowerCase()) && (!stockFilter || product.category === stockFilter));
+  const menuData = menuTab === 'items' ? itemRows : categoryRows; const totalExpenses = expenses.reduce((sum, item) => sum + item.amount, 0); const cash = filtered.filter((item) => item.method === 'Tiền mặt').reduce((sum, item) => sum + item.total, 0); const transfer = revenue - cash; const lowStock = products.filter((product) => isLowStock(product) && product.name.toLowerCase().includes(query.toLowerCase()) && (!stockFilter || product.category === stockFilter));
   const addExpense = () => { const value = Number(amount); if (!description.trim() || !Number.isFinite(value) || value <= 0) return; onExpenseAdded({ id: crypto.randomUUID(), description: description.trim(), amount: value, spentAt: new Date().toISOString() }); setDescription(''); setAmount(''); setShowExpenseForm(false) }
   const axisMax = Math.max(...chartData.map((item) => item.value), 0); const axisStep = activeMetric === 'count' ? Math.max(1, Math.ceil(Math.max(axisMax, 1) / 4)) : axisMax > 1_000_000 ? 300_000 : axisMax > 500_000 ? 100_000 : 50_000; const axisDomainMax = activeMetric === 'count' ? Math.max(4, Math.ceil(Math.max(axisMax, 1) / axisStep) * axisStep) : Math.max(axisStep, Math.ceil(Math.max(axisMax, 1) / axisStep) * axisStep); const axisTickCount = activeMetric === 'count' ? Math.min(6, Math.floor(axisDomainMax / axisStep) + 1) : 5
   return <main className="space-y-5">

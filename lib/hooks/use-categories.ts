@@ -2,7 +2,7 @@
 
 import useSWR from 'swr'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { categoryList, DEFAULT_CATEGORIES } from '@/lib/catalog'
+import { categoryList, FALLBACK_CATEGORY } from '@/lib/catalog'
 
 export function useCategories(products: { category?: string }[]) {
   const db = getSupabaseClient()
@@ -11,7 +11,7 @@ export function useCategories(products: { category?: string }[]) {
     if (error) throw error
     return (data ?? []).map((row) => String(row.name))
   }, { refreshInterval: 30000 })
-  const categories = categoryList(DEFAULT_CATEGORIES, data ?? [], products.map((product) => product.category ?? ''))
+  const categories = categoryList([FALLBACK_CATEGORY], data ?? [], products.map((product) => product.category ?? ''))
   async function createCategory(value: string) {
     const name = value.trim().replace(/\s+/g, ' ')
     if (!name || name.length > 80) throw new Error('Tên nhóm phải có từ 1 đến 80 ký tự.')
@@ -22,5 +22,11 @@ export function useCategories(products: { category?: string }[]) {
     await mutate((current) => categoryList(current ?? [], [name]), { revalidate: false })
     return name
   }
-  return { categories, createCategory, categoryError: error }
+  async function deleteCategory(name: string) {
+    if (name === FALLBACK_CATEGORY) throw new Error('Không thể xóa nhóm mặc định.')
+    const { error } = await db.rpc('pos_delete_category', { p_name: name })
+    if (error) throw new Error(`Không xóa được nhóm hàng: ${error.message}`)
+    await mutate((current) => (current ?? []).filter((item) => item !== name), { revalidate: false })
+  }
+  return { categories, createCategory, deleteCategory, categoryError: error }
 }

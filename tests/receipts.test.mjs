@@ -47,3 +47,13 @@ test('partial-return preview keeps discount ratio and stable IDs after an earlie
  assert.throws(()=>refundPreview(order,[{line_id:'2',quantity:3}]))
  assert.throws(()=>refundPreview(order,[{line_id:'2',quantity:-1}]))
 })
+
+test('document display never leaks UUID/timestamp IDs and timestamps use fixed Vietnamese format',async()=>{
+ const {shortDocumentNumber,formatVietnamTimestamp}=await import('../lib/document-numbers.ts')
+ const stamp='2026-10-31T17:05:09Z'
+ assert.equal(formatVietnamTimestamp(stamp),'01/11/2026 00:05:09')
+ assert.equal(shortDocumentNumber('PN',stamp,'da26a1b0-0000-4000-8000-000000000000'),'PN0111—')
+ assert.equal(shortDocumentNumber('PN',stamp,'PN0111001'),'PN0111001')
+ assert.equal(shortDocumentNumber('HD',stamp,'HD1793470000000','HD0111012'),'HD0111012')
+ assert.equal(shortDocumentNumber('PN',stamp,'PN01111000'),'PN01111000')
+})

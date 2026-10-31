@@ -16,7 +16,7 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql','202611010005_short_import_numbers.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
@@ -331,4 +331,33 @@ test('padStart keeps at least three digits and never truncates the 1000th receip
  assert.equal(Number(result.order.receipt_no.slice(6)),count+1)
  await db.exec('rollback')
  assert.equal((await read(id)).stock,2)
+})
+
+test('import numbers are short and unique; retries and voids never reuse a number',async()=>{
+ const id=await product(10,6000),request=randomUUID()
+ const first=await receive(id,2,12000,request)
+ assert.match(first.receipt.receipt_no,/^PN[0-9]{7,}$/)
+ const retry=await receive(id,2,12000,request)
+ assert.equal(retry.receipt.receipt_no,first.receipt.receipt_no)
+ await voidImport(first.receipt.id)
+ const next=await receive(id,1,6000)
+ assert.notEqual(next.receipt.receipt_no,first.receipt.receipt_no)
+ assert.equal(Number(next.receipt.receipt_no.slice(6)),Number(first.receipt.receipt_no.slice(6))+1)
+})
+test('import numbering resets by Vietnam date and scopes uniqueness to the full year',async()=>{
+ await db.exec('reset role; begin')
+ for(const stamp of ['2099-10-31T17:00:00Z','2100-10-31T17:00:00Z'])await db.query("insert into public.pos_stock_imports(id,product_id,product_name,quantity,unit_cost,total_cost,created_at) values($1,'legacy','Legacy',1,6000,6000,$2::timestamptz)",[randomUUID(),stamp])
+ const rows=(await db.query("select receipt_no from public.pos_stock_imports where product_id='legacy' order by created_at")).rows
+ assert.equal(rows[0].receipt_no,'PN0111001');assert.equal(rows[1].receipt_no,'PN0111001')
+ await db.exec('rollback; set role anon')
+})
+test('migration backfills legacy display aliases without changing bill numbers, QR or original inventory UUIDs',async()=>{
+ await db.exec('reset role')
+ const id=randomUUID(),code='HD1793470000000abcd'
+ await db.query("insert into public.pos_orders(id,receipt_no,transaction_code,receipt_day,created_at,payment_method,items,subtotal,total,qr_url) values($1,$2,$2,'2080-11-01','2080-11-01T01:00:00Z','Tiền mặt','[]',0,0,'https://img.vietqr.io/image/original')",[id,code])
+ const sql=await readFile(new URL('../supabase/migrations/202611010005_short_import_numbers.sql',import.meta.url),'utf8')
+ await db.exec(sql);await db.exec(sql)
+ const row=(await db.query('select receipt_no,activity_receipt_no,qr_url from public.pos_orders where id=$1',[id])).rows[0]
+ assert.equal(row.receipt_no,code);assert.equal(row.activity_receipt_no,'HD0111001');assert.equal(row.qr_url,'https://img.vietqr.io/image/original')
+ await db.exec('set role anon')
 })

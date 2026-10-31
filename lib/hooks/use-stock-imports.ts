@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
-export type StockImport = { id: string; product_id: string; product_name: string; quantity: number; unit_cost: number; total_cost: number; created_at: string; stock_before?: number; cost_before?: number; cost_after?: number; voided_at?: string | null; reversible?: boolean }
+export type StockImport = { receipt_no?:string; id: string; product_id: string; product_name: string; quantity: number; unit_cost: number; total_cost: number; created_at: string; stock_before?: number; cost_before?: number; cost_after?: number; voided_at?: string | null; reversible?: boolean }
 const cacheKey = () => `pos-stock-imports:${process.env.NEXT_PUBLIC_SUPABASE_URL}`
 function store(rows: StockImport[]) { try { localStorage.setItem(cacheKey(), JSON.stringify(rows)) } catch {} }
 export function useStockImports() {

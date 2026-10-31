@@ -5,7 +5,7 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; failAdjust?: boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   const categories = [{ name: 'Đồ đóng gói' }]
   let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:80,auto_print:options.autoPrint??false,show_qr:false }
@@ -27,7 +27,7 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
     let status = 200
     if (method === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } }); return }
     if (table === 'pos_receipt_settings') { if(options.settingsOffline){status=403;body={message:'offline'}}else{if(method==='POST') template={...template,...route.request().postDataJSON()}; body=template} }
-    else if(table==='pos_orders') body=options.rawHistory?orders.map((row)=>({...row,items:JSON.stringify(JSON.stringify(row.items))})):orders
+    else if(table==='pos_orders') body=options.rawHistory?orders.map((row)=>({...row,items:JSON.stringify(JSON.stringify(row.items))})):options.legacyLog?orders.map((row)=>({...row,receipt_no:'HD1793470000000abcdef',activity_receipt_no:row.receipt_no,activity_events:row.activity_events.map((event:any)=>({...event,receipt_no:'HD1793470000000abcdef'}))})):orders
     else if (table === 'pos_products') {
       if (method === 'PATCH') product = { ...product, ...route.request().postDataJSON() }
       body = method === 'GET' ? [product] : product
@@ -51,7 +51,7 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
       receipts.push(input)
       if (options.failReceive) { status = 403; body = { message: 'permission denied' } }
       else {
-        const receipt = { id: input.p_receipt_id, product_id: product.id, product_name: product.name, quantity: input.p_quantity, unit_cost: input.p_total / input.p_quantity, total_cost: input.p_total, created_at: new Date().toISOString(), cost_before: product.cost_price, stock_before: product.stock, reversible: true }
+        const receipt = { receipt_no:`PN${new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit'}).format(new Date()).replaceAll('/','')}${String(imports.length+1).padStart(3,'0')}`, id: input.p_receipt_id, product_id: product.id, product_name: product.name, quantity: input.p_quantity, unit_cost: input.p_total / input.p_quantity, total_cost: input.p_total, created_at: new Date().toISOString(), cost_before: product.cost_price, stock_before: product.stock, reversible: true }
         product = { ...product, stock: product.stock + input.p_quantity, cost_price: Math.round((Math.max(0,product.stock)*product.cost_price+input.p_total)/(Math.max(0,product.stock)+input.p_quantity)) }
         imports = [receipt, ...imports]; body = { stock: product.stock, cost_price: product.cost_price, receipt }
       }
@@ -389,7 +389,7 @@ test('history network failure shows the saved receipt without pretending it is s
   await page.getByRole('button',{name:'Nhập hàng',exact:true}).click()
   await expect(page.getByRole('status').filter({hasText:'Đang hiển thị bản lưu'})).toBeVisible()
   await expect(page.getByRole('cell',{name:'Phiếu đã lưu',exact:true})).toBeVisible()
-  await expect(page.getByRole('button',{name:'Xóa phiếu nhập cached',exact:true})).toBeDisabled()
+  await expect(page.getByRole('button',{name:/Xóa phiếu nhập PN/,exact:false})).toBeDisabled()
 })
 
 test('retail checkout decrements stock and renders sold out; retry reuses the bill identifier', async ({ page }) => {
@@ -679,4 +679,34 @@ test('failed return keeps the detail and inventory unchanged',async({page})=>{
  await page.getByRole('button',{name:'Đóng chi tiết hóa đơn',exact:true}).click()
  await inventory(page)
  await expect(page.getByLabel(`Tồn kho ${initialProduct.name}`,{exact:true})).toHaveText('6')
+})
+
+test('import history and activity share PN numbers and never show the internal UUID',async({page})=>{
+ const {receipts}=await fixture(page)
+ await inventory(page)
+ await page.getByRole('button',{name:'Nhập hàng',exact:true}).click()
+ await page.getByLabel('Mặt hàng nhập',{exact:true}).selectOption(initialProduct.id)
+ await page.getByLabel('Số lượng nhập',{exact:true}).fill('2')
+ await page.getByLabel('Tổng tiền nhập',{exact:true}).fill('12000')
+ await page.getByRole('button',{name:'Lưu phiếu nhập',exact:true}).click()
+ const history=page.getByRole('region',{name:'Lịch sử nhập kho'})
+ const code=await history.getByRole('cell',{name:/^PN\d{7,}$/}).textContent()
+ await expect(history).not.toContainText(String(receipts[0].p_receipt_id))
+ await expect(history.getByRole('button',{name:`Xóa phiếu nhập ${code}`,exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Nhật ký hoạt động',exact:true}).click()
+ await expect(page.locator('ol')).toContainText(code!)
+ await expect(page.locator('ol')).not.toContainText(String(receipts[0].p_receipt_id))
+ await expect(page.locator('ol').getByText(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/)).toBeVisible()
+})
+
+test('legacy void/refund events use the short activity alias instead of the old timestamp bill number',async({page})=>{
+ const {results}=await buyTwo(page,{legacyLog:true})
+ await page.getByRole('button',{name:'Hủy hóa đơn',exact:true}).click()
+ await page.getByRole('alertdialog').getByRole('button',{name:'Hủy hóa đơn',exact:true}).click()
+ await page.getByRole('button',{name:'Đóng chi tiết hóa đơn',exact:true}).click()
+ await page.reload()
+ await page.getByRole('button',{name:'Nhật ký hoạt động',exact:true}).click()
+ await expect(page.locator('ol')).toContainText(results[0].receipt_no)
+ await expect(page.locator('ol')).not.toContainText('HD1793470000000abcdef')
+ await expect(page.locator('ol').getByText(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/)).toBeVisible()
 })

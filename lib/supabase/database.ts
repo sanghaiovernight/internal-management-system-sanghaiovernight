@@ -7,7 +7,7 @@ export type Database = {
     Tables: {
       pos_receipt_settings: Table<ReceiptSettings & {id:string}>
       pos_orders: Table<ReceiptOrder>
-      pos_stock_imports: Table<{ id: string; product_id: string; product_name: string; quantity: number; unit_cost: number; total_cost: number; created_at: string; stock_before: number; cost_before: number; cost_after: number; auto_expense: boolean; voided_at: string | null; reversible: boolean }>
+      pos_stock_imports: Table<{ receipt_no:string; id: string; product_id: string; product_name: string; quantity: number; unit_cost: number; total_cost: number; created_at: string; stock_before: number; cost_before: number; cost_after: number; auto_expense: boolean; voided_at: string | null; reversible: boolean }>
       pos_expenses: Table<{ id: string; description: string; amount: number; spent_at: string }>
       pos_categories: Table<{ name: string; created_at: string }, { name: string }>
       pos_products: Table<{

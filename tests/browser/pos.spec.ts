@@ -4,7 +4,7 @@ import path from 'node:path'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   const categories = [{ name: 'Đồ đóng gói' }]
   let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:80,auto_print:options.autoPrint??false,show_qr:false }
@@ -23,7 +23,7 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
     let status = 200
     if (method === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } }); return }
     if (table === 'pos_receipt_settings') { if(options.settingsOffline){status=403;body={message:'offline'}}else{if(method==='POST') template={...template,...route.request().postDataJSON()}; body=template} }
-    else if(table==='pos_orders') body=orders
+    else if(table==='pos_orders') body=options.rawHistory?orders.map((row)=>({...row,items:JSON.stringify(JSON.stringify(row.items))})):orders
     else if (table === 'pos_products') {
       if (method === 'PATCH') product = { ...product, ...route.request().postDataJSON() }
       body = method === 'GET' ? [product] : product
@@ -476,6 +476,7 @@ test('checkout-and-print persists the bill first; history searches, details and 
  await page.getByRole('button',{name:'In lại hóa đơn',exact:true}).click()
  await expect.poll(()=>page.evaluate(()=>(window as any).__prints.length)).toBe(2)
  expect(payments).toHaveLength(1)
+ await page.getByRole('button',{name:'Đóng chi tiết hóa đơn',exact:true}).click()
  await page.getByLabel('Tìm hóa đơn',{exact:true}).fill('Không tồn tại')
  await expect(page.getByText('Không có hóa đơn phù hợp.',{exact:true})).toBeVisible()
 })
@@ -517,8 +518,65 @@ test('QR toggle uses configured bank and bill amount; disabled QR never prints a
  await fixture(page);await designer(page)
  const preview=page.getByLabel('Xem trước mẫu hóa đơn')
  await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveCount(0)
+ await page.getByLabel('Tên Ngân hàng (Mã viết tắt, VD: MB, VCB)',{exact:true}).fill('MB')
+ await page.getByLabel('Số tài khoản',{exact:true}).fill('12345678')
+ await page.getByLabel('Tên chủ tài khoản',{exact:true}).fill('TEST ONLY')
  await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).check()
  await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/MB-12345678.*amount=65000.*IN-THU/)
  await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).uncheck()
  await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveCount(0)
+})
+
+test('invoice history decodes legacy JSON, uses a detail modal and leaves Reports without transaction history',async({page})=>{
+ const {payments}=await fixture(page,{rawHistory:true})
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công'})).toBeVisible()
+ expect(Array.isArray(payments[0].p_items)).toBe(true)
+ await page.reload()
+ await page.getByRole('button',{name:'Báo cáo',exact:true}).click()
+ await expect(page.getByText('Lịch sử giao dịch',{exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+ const bill=page.getByRole('button',{name:new RegExp(payments[0].p_code)})
+ await expect(bill).toContainText(initialProduct.name)
+ await expect(bill).not.toContainText('"quantity"')
+ await bill.click()
+ await expect(page.getByRole('dialog',{name:`Chi tiết hóa đơn ${payments[0].p_code}`})).toBeVisible()
+ await expect(page.getByRole('button',{name:'In lại hóa đơn',exact:true})).toBeVisible()
+ await page.keyboard.press('Escape')
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ await page.getByLabel('Ngày thanh toán',{exact:true}).fill('31/02/2026')
+ await expect(page.getByRole('alert').filter({hasText:'Ngày không hợp lệ'})).toBeVisible()
+ await page.getByLabel('Ngày thanh toán',{exact:true}).fill('01/01/2000')
+ await expect(page.getByText('Không có hóa đơn phù hợp.',{exact:true})).toBeVisible()
+ await expect(page.getByLabel('Ngày thanh toán',{exact:true})).toHaveAttribute('placeholder','dd/MM/yyyy')
+})
+
+test('designer bank fields persist and generate the actual paid bill QR without local bank settings',async({page})=>{
+ await printSpy(page)
+ const {payments}=await fixture(page)
+ await designer(page)
+ await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).check()
+ await expect(page.getByText(/Vui lòng nhập đủ mã ngân hàng/)).toBeVisible()
+ await page.getByLabel('Tên Ngân hàng (Mã viết tắt, VD: MB, VCB)',{exact:true}).fill('VCB')
+ await page.getByLabel('Số tài khoản',{exact:true}).fill('987654321')
+ await page.getByLabel('Tên chủ tài khoản',{exact:true}).fill('TEST OWNER')
+ await expect(page.getByText(/Vui lòng nhập đủ mã ngân hàng/)).toHaveCount(0)
+ await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công'})).toBeVisible()
+ const qr=new URL(payments[0].p_receipt.qr_url)
+ expect(qr.pathname).toBe('/image/VCB-987654321-compact2.png')
+ expect(qr.searchParams.get('amount')).toBe('35000')
+ expect(qr.searchParams.get('addInfo')).toBe(payments[0].p_code)
+ expect(qr.searchParams.get('accountName')).toBe('TEST OWNER')
+ await page.reload();await designer(page)
+ await expect(page.getByLabel('Số tài khoản',{exact:true})).toHaveValue('987654321')
 })

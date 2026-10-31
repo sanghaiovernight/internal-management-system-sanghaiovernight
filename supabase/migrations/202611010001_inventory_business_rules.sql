@@ -222,7 +222,7 @@ begin
     updated_products := updated_products || jsonb_build_array(jsonb_build_object('id',product.id,'stock',greatest(0,coalesce(product.stock,0)-line.quantity),'cost_price',product.cost_price));
   end loop;
   if available_ids <> expected_ids then raise exception 'Mặt hàng đã bị xóa hoặc không có quyền truy cập'; end if;
-  insert into public.pos_transactions(code,date_time,total,method,items) values(p_code,p_date_time,p_total,p_method,p_items::text);
+  insert into public.pos_transactions(code,date_time,total,method,items) values(p_code,p_date_time,p_total,p_method,p_items);
   return jsonb_build_object('products',updated_products);
 end; $$;
 

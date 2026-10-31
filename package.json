@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test --test-isolation=none tests/*.test.mjs",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit --incremental false",
     "check:supabase": "NODE_USE_ENV_PROXY=1 node scripts/check-supabase.mjs"

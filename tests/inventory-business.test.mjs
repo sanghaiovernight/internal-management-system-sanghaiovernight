@@ -16,7 +16,7 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
@@ -211,4 +211,17 @@ test('receipt settings persist, reject unsupported paper widths and legacy lines
  await assert.rejects(db.query("update public.pos_receipt_settings set paper_width=90 where id='default'"),/check constraint/)
  const legacy=(await db.query("select public.pos_receipt_items('Mì x 2') as items")).rows[0].items
  assert.equal(legacy[0].price,null);assert.equal(legacy[0].name,'Mì x 2')
+})
+
+test('checkout accepts object arrays when both orders and transaction items columns are JSONB',async()=>{
+ await db.exec('reset role; alter table public.pos_transactions alter column items type jsonb using public.pos_receipt_items(items); set role anon')
+ const id=await product(2,6000),code=randomUUID()
+ const result=await payReceipt(id,code)
+ assert.ok(Array.isArray(result.order.items))
+ const row=(await db.query('select items from public.pos_transactions where code=$1',[code])).rows[0]
+ assert.ok(Array.isArray(row.items));assert.equal(row.items[0].quantity,1)
+ assert.equal((await read(id)).stock,1)
+ await db.query("update public.pos_receipt_settings set bank_name='MB',bank_account='12345678',bank_owner='TEST ONLY' where id='default'")
+ const settings=(await db.query("select bank_name,bank_account,bank_owner from public.pos_receipt_settings where id='default'")).rows[0]
+ assert.equal(settings.bank_name,'MB');assert.equal(settings.bank_account,'12345678');assert.equal(settings.bank_owner,'TEST ONLY')
 })

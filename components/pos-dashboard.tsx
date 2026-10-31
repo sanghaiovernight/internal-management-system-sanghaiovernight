@@ -9,10 +9,11 @@ import { getSupabaseClient } from '@/lib/supabase/client'
 import ReportsView from './reports-view'
 import { parseTransactionItems } from '@/lib/transaction-items'
 import InventoryManager from './inventory-manager'
+import ActivityLog from './activity-log'
 import InvoicesView from './invoices-view'
 import ReceiptPrinter, { type ReceiptPrinterHandle } from './receipt-printer'
 import { useReceiptSettings, useOrders } from '@/lib/hooks/use-receipts'
-import { bankQr, normalizeOrder } from '@/lib/receipts'
+import { normalizeOrder } from '@/lib/receipts'
 
 import { isRetail, stockProblem, FALLBACK_CATEGORY } from '@/lib/catalog'
 import type { Product } from '@/lib/product'
@@ -34,7 +35,7 @@ const formatCashInput = (value: string) => {
 }
 
 export function PosDashboard() {
-  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports' | 'invoices'>('pos')
+  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'reports' | 'invoices' | 'activity'>('pos')
   const receiptConfig = useReceiptSettings()
   const invoices = useOrders()
   const printer = useRef<ReceiptPrinterHandle>(null)
@@ -57,7 +58,7 @@ export function PosDashboard() {
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paying, setPaying] = useState(false)
   const paymentLock = useRef(false)
-  const paymentAttempt = useRef<{ fingerprint: string; code: string } | null>(null)
+  const paymentAttempt = useRef<{ fingerprint: string; requestId: string } | null>(null)
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null)
   useEffect(() => { const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && cartSheetOpen) setCartSheetOpen(false) }; window.addEventListener('keydown', onEscape); return () => window.removeEventListener('keydown', onEscape) }, [cartSheetOpen])
@@ -130,7 +131,7 @@ export function PosDashboard() {
     cartSnapshot.current = JSON.stringify(restoredCart.map((line) => ({ product_id: line.id, quantity: line.quantity })))
     setCartHydrated(true)
     if (persistedState.savedTransactions.length) {
-      setTransactions(persistedState.savedTransactions.map((transaction) => ({
+      setTransactions(persistedState.savedTransactions.filter((transaction: any)=>transaction.status!=='voided').map((transaction) => ({
         code: transaction.code,
         dateTime: transaction.date_time,
         total: Number(transaction.total ?? 0),
@@ -192,7 +193,7 @@ export function PosDashboard() {
   const received = Number(cashReceived.replace(/\D/g, '')) || 0
   const change = received - total
   const filteredProducts = posProducts.filter((product) => { const matchesQuery = product.name.toLowerCase().includes(query.toLowerCase()) || (product.barcode ?? '').includes(query); const matchesFilter = productFilter === '' || product.category === productFilter; return matchesQuery && matchesFilter })
-  const billCode = `HD${String(bills + 1).padStart(4, '0')}`
+  const billCode = 'Được cấp khi lưu hóa đơn'
   const suggestions = [total, Math.ceil(total / 1000) * 1000, 100000, 200000, 500000, 1000000].filter((value, index, list) => value >= total && value > 0 && list.indexOf(value) === index).slice(0, 5)
 
   function addToCart(product: Product) {
@@ -225,15 +226,16 @@ export function PosDashboard() {
     const method = paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'
     const normalizedItems = safeCart.map((item) => ({ id: item.id, name: item.name, price: Number(item.price), quantity: item.quantity, category: item.category || FALLBACK_CATEGORY, note: String(item.note || '').trim() }))
     const fingerprint = JSON.stringify([normalizedItems, Math.round(total), method])
-    if (paymentAttempt.current?.fingerprint !== fingerprint) paymentAttempt.current = { fingerprint, code: `HD${Date.now()}${crypto.randomUUID().slice(0, 8)}` }
-    const code = paymentAttempt.current!.code
+    if (paymentAttempt.current?.fingerprint !== fingerprint) paymentAttempt.current = { fingerprint, requestId: crypto.randomUUID() }
+    const requestId = paymentAttempt.current!.requestId
     try {
-      const { data, error } = await supabase.rpc('pos_checkout_receipt', { p_code: code, p_items: normalizedItems, p_total: Math.round(total), p_method: method, p_date_time: dateTime, p_receipt: { cash_received: paymentMethod === 'cash' ? received : null, settings: receiptConfig.settings, qr_url: receiptConfig.settings.show_qr ? bankQr(Math.round(total),code,receiptConfig.settings) : null } })
+      const { data, error } = await supabase.rpc('pos_checkout_order', { p_request_id: requestId, p_items: normalizedItems, p_total: Math.round(total), p_method: method, p_receipt: { cash_received: paymentMethod === 'cash' ? received : null, settings: receiptConfig.settings, qr_url: null } })
       if (error) throw new Error(error.message)
       applyInventoryChange(inventoryProducts.map((product) => {
         const saved = data.products.find((row) => row.id === product.id)
         return saved ? { ...product, stock: Number(saved.stock), costPrice: Number(saved.cost_price), cost: Number(saved.cost_price) } : product
       }))
+      const code = data.order.receipt_no
       const transaction = { code, dateTime, items: normalizedItems, total: Math.round(total), method, soldItems: normalizedItems }
       setTransactions((current) => [transaction, ...current.filter((item) => item.code !== code)])
       showToast({ title: 'Thanh toán thành công!', description: `Mã đơn ${code} · Tổng tiền: ${money(transaction.total)}` })
@@ -263,7 +265,7 @@ export function PosDashboard() {
 
       <div className="mx-auto max-w-[1500px] px-5 py-5 lg:px-8">
         <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-[#e9edef] bg-white dark:bg-[#1C1714] dark:border-stone-800 p-1.5 shadow-sm md:w-fit">
-          {([['pos', 'POS', CreditCard], ['inventory', 'Kho hàng', Package], ['reports', 'Báo cáo', BarChart3], ['invoices', 'Hóa đơn & Mẫu in', ReceiptText]] as const).map(([key, label, Icon]) => <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${activeTab === key ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm' : 'text-[#7b858e] hover:bg-[#f3f6f5] dark:hover:border-amber-500/50'}`}><Icon />{label}</button>)}
+          {([['pos', 'POS', CreditCard], ['inventory', 'Kho hàng', Package], ['reports', 'Báo cáo', BarChart3], ['invoices', 'Hóa đơn & Mẫu in', ReceiptText], ['activity', 'Nhật ký hoạt động', ReceiptText]] as const).map(([key, label, Icon]) => <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${activeTab === key ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm' : 'text-[#7b858e] hover:bg-[#f3f6f5] dark:hover:border-amber-500/50'}`}><Icon />{label}</button>)}
         </nav>
 
         {productsError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">Không tải được sản phẩm từ Supabase. Kiểm tra kết nối và quyền truy cập, rồi thử lại.</p>}
@@ -273,7 +275,8 @@ export function PosDashboard() {
           <CartPanel checkoutDisabled={!canCheckout} checkoutProblem={safeCart.length ? checkoutProblem : null} cart={safeCart} subtotal={subtotal} discount={discount} setDiscount={setDiscount} discountOpen={discountOpen} setDiscountOpen={setDiscountOpen} cartTabs={cartTabs} setCartTabs={setCartTabs} activeCartTab={activeCartTab} setActiveCartTab={(index) => { setCartTabs((tabs) => tabs.map((tab, i) => i === activeCartTab ? cart : tab)); setCart(Array.isArray(cartTabs[index]) ? cartTabs[index] : []); setActiveCartTab(index) }} setCart={setCart} updateQuantity={updateQuantity} expandedNoteId={expandedNoteId} onToggleNote={(id) => setExpandedNoteId((current) => current === id ? null : id)} onNoteChange={(id, note) => setCart((current) => current.map((line) => line.id === id ? { ...line, note } : line))} onCheckout={openCheckout} />
         </div>}
 
-        {activeTab === 'invoices' && <InvoicesView settings={receiptConfig.settings} pending={receiptConfig.pending} offline={receiptConfig.offline} orders={invoices.orders} loading={invoices.isLoading} ordersError={!!invoices.error} onSave={receiptConfig.save} onPrint={async(order,settings)=>{await printer.current?.print(order,settings)}} />}
+        {activeTab === 'activity' && <ActivityLog orders={invoices.orders} ordersError={!!invoices.error}/>}
+        {activeTab === 'invoices' && <InvoicesView onAdjusted={(order,rows)=>{applyInventoryChange(inventoryProducts.map((product)=>{const row=rows.find((item)=>item.id===product.id);return row?{...product,stock:Number(row.stock),costPrice:Number(row.cost_price),cost:Number(row.cost_price)}:product}));void invoices.remember(order);setTransactions((current)=>order.status==='voided'?current.filter((item)=>item.code!==order.receipt_no&&item.code!==order.transaction_code):current.map((item)=>(item.code===order.receipt_no||item.code===order.transaction_code)?{...item,total:order.total,soldItems:order.items.map((line)=>({name:line.name,quantity:line.quantity}))}:item))}} settings={receiptConfig.settings} pending={receiptConfig.pending} offline={receiptConfig.offline} orders={invoices.orders} loading={invoices.isLoading} ordersError={!!invoices.error} onSave={receiptConfig.save} onPrint={async(order,settings)=>{await printer.current?.print(order,settings)}} />}
         {activeTab === 'inventory' && <InventoryManager products={inventoryProducts} onChange={applyInventoryChange} categories={categoryLabels} onCreateCategory={createCategory} onDeleteCategory={removeCategory} onReceived={() => { void refreshExpenses() }} />}
         {activeTab === 'reports' && <div className="min-w-0 reports-layout"><ReportsView categories={categoryLabels} transactions={transactions} products={inventoryProducts} expenses={expenses} onExpenseAdded={(expense) => setExpenses((current) => [expense, ...current])} onDeleteExpense={(id) => setExpenses((current) => current.filter((expense) => expense.id !== id))} onOpenInventory={() => setActiveTab('inventory')} /></div>}
       </div>

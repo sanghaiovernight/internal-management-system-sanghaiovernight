@@ -37,3 +37,13 @@ test('VietQR requires all three bank fields and uses the actual amount/bill code
  assert.equal(url.searchParams.get('amount'),'78000');assert.equal(url.searchParams.get('addInfo'),'HD&123');assert.equal(url.searchParams.get('accountName'),'TEST OWNER')
  assert.equal(bankQr(0,'X',{...settings,bank_owner:''}),null)
 })
+
+test('partial-return preview keeps discount ratio and stable IDs after an earlier line reaches zero',async()=>{
+ const {refundPreview}=await import('../lib/receipts.ts')
+ const order=normalizeOrder({id:'r',receipt_no:'HD0111001',created_at:'2026-11-01T00:00:00Z',items:[{id:'a',line_id:'1',name:'A',quantity:0,price:10000},{id:'b',line_id:'2',name:'B',quantity:2,price:10000}],subtotal:20000,total:15000,original_subtotal:40000,original_total:30000})
+ assert.equal(order.items.length,1);assert.equal(order.items[0].line_id,'2')
+ assert.deepEqual(refundPreview(order,[{line_id:'2',quantity:1}]),{subtotal:10000,total:7500,refund:7500})
+ assert.deepEqual(refundPreview(order,[{line_id:'2',quantity:0}]),{subtotal:0,total:0,refund:15000})
+ assert.throws(()=>refundPreview(order,[{line_id:'2',quantity:3}]))
+ assert.throws(()=>refundPreview(order,[{line_id:'2',quantity:-1}]))
+})

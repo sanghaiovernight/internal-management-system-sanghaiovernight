@@ -1,0 +1,3 @@
+# Apply migration 202611010004 in four complete scripts
+
+These files are an alternative to the single migration. Do not paste isolated lines or pieces of a function. Each file has its own BEGIN/COMMIT and complete dollar-quoted function bodies. Run files 01, 02, 03, 04 in that order in separate Supabase SQL Editor queries, selecting the entire file each time. Do not enable the editor auto-RLS rewrite: table policies are already included. Do not add statements targeting PL/pgSQL variable names such as receipt or product. Finish all four parts before enabling the new app. If a previous attempt left the editor transaction aborted, run ROLLBACK; first. Repeating the parts in order is supported.

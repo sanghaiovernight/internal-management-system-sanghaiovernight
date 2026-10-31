@@ -16,10 +16,13 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
+  }
+  for(const part of ['01_schema_and_compat.sql','02_inventory_replay.sql','03_short_receipt_checkout.sql','04_returns_and_void.sql']) {
+    const sql=await readFile(new URL(`../supabase/manual/202611010004/${part}`,import.meta.url),'utf8'); await db.exec(sql); await db.exec(sql)
   }
   await db.exec('set role anon')
 })
@@ -224,4 +227,108 @@ test('checkout accepts object arrays when both orders and transaction items colu
  await db.query("update public.pos_receipt_settings set bank_name='MB',bank_account='12345678',bank_owner='TEST ONLY' where id='default'")
  const settings=(await db.query("select bank_name,bank_account,bank_owner from public.pos_receipt_settings where id='default'")).rows[0]
  assert.equal(settings.bank_name,'MB');assert.equal(settings.bank_account,'12345678');assert.equal(settings.bank_owner,'TEST ONLY')
+})
+
+async function newOrder(lines,total=0,request=randomUUID()) {
+ const items=lines.map(([id,quantity])=>({id,name:'Món thử',quantity,price:10000,note:'',category:'Nhóm thử'}))
+ return (await db.query('select public.pos_checkout_order($1,$2::jsonb,$3,$4,$5::jsonb) as result',[request,JSON.stringify(items),total,'Tiền mặt',JSON.stringify({cash_received:100000,settings:{paper_width:80,show_qr:true,bank_name:'MB',bank_account:'123',bank_owner:'TEST OWNER'}})])).rows[0].result
+}
+const adjustOrder=async(order,action,quantities=[],request=randomUUID(),version=order.version)=>(await db.query('select public.pos_adjust_order($1,$2,$3::jsonb,$4,$5) as result',[order.id,action,JSON.stringify(quantities),request,version])).rows[0].result
+
+test('short receipt number counts all bills since Vietnam midnight and QR uses the assigned number',async()=>{
+ const day=(await db.query("select (now() at time zone 'Asia/Ho_Chi_Minh')::date::text as day")).rows[0].day
+ const count=(await db.query("select count(*)::int as n from public.pos_orders where created_at>=($1::date::timestamp at time zone 'Asia/Ho_Chi_Minh') and created_at<(($1::date+1)::timestamp at time zone 'Asia/Ho_Chi_Minh')",[day])).rows[0].n
+ const id=await product(3,6000),req=randomUUID(),first=await newOrder([[id,1]],8000,req)
+ assert.match(first.order.receipt_no,/^HD[0-9]{7}$/)
+ assert.equal(Number(first.order.receipt_no.slice(-3)),count+1)
+ assert.ok(first.order.qr_url.includes('addInfo='+first.order.receipt_no))
+ const retry=await newOrder([[id,1]],8000,req)
+ assert.equal(first.order.receipt_no,retry.order.receipt_no);assert.equal((await read(id)).stock,2)
+ await assert.rejects(newOrder([[id,2]],8000,req),/giỏ khác/)
+ const second=await newOrder([[id,1]],8000)
+ assert.notEqual(first.order.receipt_no,second.order.receipt_no)
+})
+test('receipt numbers can restart on a different year without global receipt number collisions',async()=>{
+ await db.exec('reset role')
+ await db.query("insert into public.pos_orders(receipt_no,receipt_day,created_at,payment_method,items,subtotal,total,transaction_code) values('HD0101001','2030-01-01','2030-01-01T01:00:00Z','Tiền mặt','[]',0,0,$1),('HD0101001','2031-01-01','2031-01-01T01:00:00Z','Tiền mặt','[]',0,0,$2)",[randomUUID(),randomUUID()])
+ await db.exec('set role anon')
+ assert.equal((await db.query("select public.pos_next_receipt_no('2031-01-01') as code")).rows[0].code,'HD0101002')
+})
+test('partial return then void restores retail exactly once and never restores prepared stock',async()=>{
+ const retail=await product(10,6000,true),prep=await product(5,0,false)
+ const {order}=await newOrder([[retail,2],[prep,2]],30000)
+ const request=randomUUID(),quantities=[{line_id:'1',quantity:1},{line_id:'2',quantity:1}]
+ const partial=await adjustOrder(order,'refund',quantities,request)
+ assert.equal(partial.order.status,'refunded');assert.equal(partial.order.total,15000)
+ assert.equal((await read(retail)).stock,9);assert.equal((await read(prep)).stock,3)
+ await adjustOrder(order,'refund',quantities,request)
+ assert.equal((await read(retail)).stock,9)
+ const voided=await adjustOrder(partial.order,'void')
+ assert.equal(voided.order.status,'voided');assert.equal(voided.order.total,0)
+ assert.equal((await read(retail)).stock,10);assert.equal((await read(prep)).stock,3)
+ await adjustOrder(voided.order,'void')
+ assert.equal((await read(retail)).stock,10)
+ assert.equal(voided.order.activity_events.length,2)
+ const transaction=(await db.query('select total,status from public.pos_transactions where code=$1',[voided.order.transaction_code])).rows[0]
+ assert.equal(Number(transaction.total),0);assert.equal(transaction.status,'voided')
+})
+test('duplicate product lines are aggregated when returning and remaining line IDs survive partial returns',async()=>{
+ const id=await product(10,6000),{order}=await newOrder([[id,3],[id,2]],40000)
+ const first=await adjustOrder(order,'refund',[{line_id:'1',quantity:0},{line_id:'2',quantity:1}])
+ assert.equal((await read(id)).stock,9)
+ const second=await adjustOrder(first.order,'refund',[{line_id:'2',quantity:0}])
+ assert.equal((await read(id)).stock,10);assert.equal(second.order.total,0)
+ await adjustOrder(second.order,'void')
+ assert.equal((await read(id)).stock,10)
+})
+test('stale versions and invalid quantities cannot over-restock or change totals',async()=>{
+ const id=await product(5,6000),{order}=await newOrder([[id,2]],17000)
+ for(const quantities of [[{line_id:'1',quantity:3}],[{line_id:'1',quantity:-1}],[{line_id:'1',quantity:0.5}],[{line_id:'9',quantity:0}],[{line_id:'1',quantity:0},{line_id:'1',quantity:0}]]) await assert.rejects(adjustOrder(order,'refund',quantities))
+ const first=await adjustOrder(order,'refund',[{line_id:'1',quantity:1}])
+ assert.equal(first.order.total,8500);assert.equal((await read(id)).stock,4)
+ await assert.rejects(adjustOrder(order,'refund',[{line_id:'1',quantity:0}]),/máy khác/)
+ assert.equal((await read(id)).stock,4)
+ assert.equal(first.order.activity_events.length,1)
+})
+test('permission failure rolls back order state, all inventory changes and activity events',async()=>{
+ const id=await product(5,6000),{order}=await newOrder([[id,2]],16000)
+ await db.exec('reset role; revoke update on public.pos_transactions from anon; set role anon')
+ await assert.rejects(adjustOrder(order,'void'),/permission denied/)
+ assert.equal((await read(id)).stock,3)
+ const row=(await db.query('select status,activity_events,version from public.pos_orders where id=$1',[order.id])).rows[0]
+ assert.equal(row.status,'paid');assert.equal(row.version,0);assert.deepEqual(row.activity_events,[])
+ await db.exec('reset role; grant update on public.pos_transactions to anon; set role anon')
+})
+
+test('two requests from stale order versions cannot both restore stock',async()=>{
+ const id=await product(6,6000),{order}=await newOrder([[id,2]],18000)
+ const results=await Promise.allSettled([adjustOrder(order,'refund',[{line_id:'1',quantity:1}]),adjustOrder(order,'refund',[{line_id:'1',quantity:0}])])
+ assert.equal(results.filter((row)=>row.status==='fulfilled').length,1)
+ assert.equal(results.filter((row)=>row.status==='rejected').length,1)
+ assert.equal((await read(id)).stock,5)
+})
+test('a missing retail product rolls back returns to the other products too',async()=>{
+ const first=await product(5,6000),second=await product(5,6000)
+ const {order}=await newOrder([[first,1],[second,1]],18000)
+ await db.exec('reset role');await db.query('delete from public.pos_products where id=$1',[second]);await db.exec('set role anon')
+ await assert.rejects(adjustOrder(order,'void'),/Thiếu mặt hàng/)
+ assert.equal((await read(first)).stock,4)
+ const saved=(await db.query('select status,version from public.pos_orders where id=$1',[order.id])).rows[0]
+ assert.equal(saved.status,'paid');assert.equal(saved.version,0)
+})
+test('daily count uses the exact Vietnam midnight boundaries',async()=>{
+ await db.exec('reset role')
+ for(const [index,stamp] of ['2100-10-31T16:59:59Z','2100-10-31T17:00:00Z','2100-11-01T16:59:59Z','2100-11-01T17:00:00Z'].entries())await db.query("insert into public.pos_orders(receipt_no,receipt_day,created_at,payment_method,items,subtotal,total,transaction_code) values($1,($2::timestamptz at time zone 'Asia/Ho_Chi_Minh')::date,$2::timestamptz,'Tiền mặt','[]',0,0,$3)",['BOUNDARY-'+index,stamp,randomUUID()])
+ await db.exec('set role anon')
+ assert.equal((await db.query("select public.pos_next_receipt_no('2100-11-01') as code")).rows[0].code,'HD0111003')
+})
+test('padStart keeps at least three digits and never truncates the 1000th receipt',async()=>{
+ const id=await product(2,6000)
+ await db.exec('begin')
+ await db.exec("insert into public.pos_orders(receipt_no,receipt_day,created_at,payment_method,items,subtotal,total,transaction_code) select 'LIMIT-'||i::text,(now() at time zone 'Asia/Ho_Chi_Minh')::date,now(),'Tiền mặt','[]',0,0,'LIMIT-'||i::text from generate_series(1,1000)i")
+ const count=(await db.query("select count(*)::int as n from public.pos_orders where created_at>=(((now() at time zone 'Asia/Ho_Chi_Minh')::date)::timestamp at time zone 'Asia/Ho_Chi_Minh') and created_at<((((now() at time zone 'Asia/Ho_Chi_Minh')::date+1)::timestamp) at time zone 'Asia/Ho_Chi_Minh')")).rows[0].n
+ const result=await newOrder([[id,1]],9000)
+ assert.equal(Number(result.order.receipt_no.slice(6)),count+1)
+ await db.exec('rollback')
+ assert.equal((await read(id)).stock,2)
 })

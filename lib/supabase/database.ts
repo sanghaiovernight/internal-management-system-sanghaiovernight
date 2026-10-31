@@ -17,6 +17,8 @@ export type Database = {
     }
     Views: { [_ in never]: never }
     Functions: {
+      pos_checkout_order: {Args:{p_request_id:string;p_items:{id:string;name:string;quantity:number;price:number;note:string;category:string}[];p_total:number;p_method:string;p_receipt:{cash_received:number|null;settings:ReceiptSettings;qr_url?:string|null}};Returns:{products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder}}
+      pos_adjust_order: {Args:{p_order_id:string;p_action:'void'|'refund';p_quantities:{line_id:string;quantity:number}[];p_request_id:string;p_expected_version:number};Returns:{products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder}}
       pos_checkout_receipt: { Args: { p_code:string; p_items:{id:string;name:string;quantity:number;price:number;note:string;category:string}[];p_total:number;p_method:string;p_date_time:string;p_receipt:{cash_received:number|null;settings:ReceiptSettings;qr_url:string|null} }; Returns: {products:{id:string;stock:number;cost_price:number}[];order:ReceiptOrder} }
       pos_receive_stock_v2: {
         Args: { p_product_id: string; p_quantity: number; p_total: number; p_auto_expense: boolean; p_receipt_id: string }

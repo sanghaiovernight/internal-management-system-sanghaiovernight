@@ -10,13 +10,13 @@ export function InvoiceHistoryList({ orders, onSelect }: { orders:ReceiptOrder[]
   return <div className="min-w-0 rounded-2xl border border-[#E7DED3] bg-white p-4 dark:bg-[#1C1714]">
     <div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold">Lịch sử hóa đơn</h2><p className="mt-1 text-xs text-stone-500">Các bill đã thanh toán</p></div><ReceiptText className="text-amber-600"/></div>
     <div className="space-y-2">{orders.map((order)=><button key={order.id} type="button" onClick={()=>onSelect(order)} className="grid w-full min-w-0 gap-2 rounded-xl bg-[#FFFCF8] p-3 text-left text-sm hover:bg-amber-50 dark:bg-[#1A1512] sm:grid-cols-[minmax(100px,1fr)_minmax(0,1.5fr)_auto_auto] sm:items-center">
-      <div className="min-w-0"><p className="truncate font-bold" title={order.receipt_no}>{order.receipt_no}</p><p className="text-xs text-stone-500">{new Date(order.created_at).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}</p></div>
+      <div className="min-w-0"><p className="truncate font-bold" title={order.receipt_no}>{order.receipt_no}</p><span className="text-xs font-semibold text-red-600">{order.status==='voided'?'Đã hủy':order.status==='refunded'?'Đã trả hàng':''}</span><p className="text-xs text-stone-500">{new Date(order.created_at).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}</p></div>
       <p className="min-w-0 truncate text-stone-500" title={order.items.map((item)=>`${item.name} × ${item.quantity}`).join(', ')}>{order.items.map((item)=>`${item.name} × ${item.quantity}`).join(', ') || 'Không có chi tiết món hợp lệ'}</p>
       <strong className="text-amber-600 sm:text-right">{order.total.toLocaleString('vi-VN')}đ</strong><span className="text-xs font-semibold text-stone-500 sm:text-right">{order.payment_method}</span>
     </button>)}</div>
   </div>
 }
-export function InvoiceDetail({order,settings,busy,onClose,onPrint}:{order:ReceiptOrder;settings:ReceiptSettings;busy:boolean;onClose:()=>void;onPrint:()=>void}) {
+export function InvoiceDetail({order,settings,busy,onClose,onPrint,onVoid,onRefund,message}:{order:ReceiptOrder;settings:ReceiptSettings;busy:boolean;onClose:()=>void;onPrint:()=>void;onVoid:()=>void;onRefund:()=>void;message:string}) {
   const ref=useRef<HTMLDivElement>(null),id=useId()
   useEffect(()=>{
     const previous=document.activeElement as HTMLElement|null
@@ -31,6 +31,9 @@ export function InvoiceDetail({order,settings,busy,onClose,onPrint}:{order:Recei
     }}>
       <div className="mb-3 flex items-start justify-between gap-2"><h2 id={id} className="break-all text-lg font-bold">Chi tiết hóa đơn {order.receipt_no}</h2><button type="button" disabled={busy} onClick={onClose} aria-label="Đóng chi tiết hóa đơn" className="rounded-lg bg-stone-100 p-2"><X className="size-4"/></button></div>
       <button type="button" disabled={busy} onClick={onPrint} className="mb-3 w-full rounded-xl bg-amber-600 px-4 py-2 font-semibold text-white">In lại hóa đơn</button>
+      <div className="mb-3 flex flex-wrap gap-2"><button type="button" disabled={busy||order.status==='voided'||!order.items.length} onClick={onRefund} className="rounded-xl bg-stone-100 px-4 py-2 font-semibold text-stone-600">Sửa / Trả hàng</button><button type="button" disabled={busy||order.status==='voided'} onClick={onVoid} className="rounded-xl bg-red-600 px-4 py-2 font-semibold text-white">Hủy hóa đơn</button></div>
+      {message&&<p role="status" className="mb-3 text-sm text-amber-700">{message}</p>}
+      {order.status==='voided'&&<p className="mb-3 font-bold text-red-600">Hóa đơn đã hủy</p>}
       <div className="overflow-x-auto rounded-xl bg-stone-200 p-2"><div className="mx-auto w-fit"><ThermalReceipt order={order} settings={settings}/></div></div>
     </div>
   </div>,document.body)

@@ -21,6 +21,6 @@ export function useStockImports() {
   const remember = async (receipt: StockImport) => {
     await mutate((current) => [receipt, ...(current ?? cached).filter((item) => item.id !== receipt.id)], { revalidate: false })
   }
-  const forget = async (id: string) => { await mutate((current) => (current ?? cached).filter((row) => row.id !== id), { revalidate: false }) }
-  return { imports: (data ?? cached).filter((row) => !row.voided_at), error, isLoading, usingCache: !data && cached.length > 0, remember, forget }
+  const forget = async (id: string) => { await mutate((current) => (current ?? cached).map((row) => row.id===id?{...row,voided_at:new Date().toISOString()}:row), { revalidate: false }) }
+  return { allImports:data??cached, imports: (data ?? cached).filter((row) => !row.voided_at), error, isLoading, usingCache: !data && cached.length > 0, remember, forget }
 }

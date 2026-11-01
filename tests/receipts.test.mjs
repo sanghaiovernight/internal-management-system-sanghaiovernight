@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {receiptSettings,receiptItems,normalizeOrder,filterOrders,vietnamDay,bankQr,parseVietnamDate} from '../lib/receipts.ts'
+import {receiptSettings,receiptItems,normalizeOrder,filterOrders,vietnamDay,bankQr,parseVietnamDate,receiptQrUrl} from '../lib/receipts.ts'
 test('receipt defaults sanitize paper/booleans and preserve user text without interpreting HTML',()=>{
  const s=receiptSettings({paper_width:58,auto_print:true,store_name:'<script>text</script>'})
  assert.equal(s.paper_width,58);assert.equal(s.auto_print,true);assert.equal(s.store_name,'<script>text</script>')
@@ -33,7 +33,7 @@ test('Vietnam date parsing validates actual calendar days, including leap years'
 test('VietQR requires all three bank fields and uses the actual amount/bill code',()=>{
  const settings=receiptSettings({bank_name:'mb',bank_account:'12345678',bank_owner:'TEST OWNER'})
  const url=new URL(bankQr(78000,'HD&123',settings))
- assert.equal(url.pathname,'/image/MB-12345678-compact2.png')
+ assert.equal(url.pathname,'/image/MB-12345678-qr_only.png')
  assert.equal(url.searchParams.get('amount'),'78000');assert.equal(url.searchParams.get('addInfo'),'HD&123');assert.equal(url.searchParams.get('accountName'),'TEST OWNER')
  assert.equal(bankQr(0,'X',{...settings,bank_owner:''}),null)
 })
@@ -56,4 +56,12 @@ test('document display never leaks UUID/timestamp IDs and timestamps use fixed V
  assert.equal(shortDocumentNumber('PN',stamp,'PN0111001'),'PN0111001')
  assert.equal(shortDocumentNumber('HD',stamp,'HD1793470000000','HD0111012'),'HD0111012')
  assert.equal(shortDocumentNumber('PN',stamp,'PN01111000'),'PN01111000')
+})
+
+test('reprints switch legacy VietQR templates without changing saved payment details',()=>{
+ for(const template of ['compact2','print','compact','qr_only']) {
+  const original=`https://img.vietqr.io/image/MB-00123456-${template}.png?amount=78000&addInfo=HD%26123&accountName=TEST%20OWNER`
+  assert.equal(receiptQrUrl(original),'https://img.vietqr.io/image/MB-00123456-qr_only.png?amount=78000&addInfo=HD%26123&accountName=TEST%20OWNER')
+ }
+ assert.equal(receiptQrUrl('https://example.com/compact2.png'),'https://example.com/compact2.png')
 })

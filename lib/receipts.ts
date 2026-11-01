@@ -50,7 +50,7 @@ export function hasBankDetails(settings: ReceiptSettings): boolean {
 }
 export function bankQr(total: number, code: string, settings: ReceiptSettings): string | null {
   if (!hasBankDetails(settings)) return null
-  return `https://img.vietqr.io/image/${encodeURIComponent(settings.bank_name.trim().toUpperCase())}-${encodeURIComponent(settings.bank_account.trim())}-compact2.png?amount=${total}&addInfo=${encodeURIComponent(code)}&accountName=${encodeURIComponent(settings.bank_owner.trim())}`
+  return `https://img.vietqr.io/image/${encodeURIComponent(settings.bank_name.trim().toUpperCase())}-${encodeURIComponent(settings.bank_account.trim())}-qr_only.png?amount=${total}&addInfo=${encodeURIComponent(code)}&accountName=${encodeURIComponent(settings.bank_owner.trim())}`
 }
 export function parseVietnamDate(value:string): string | null {
   if(!value.trim()) return ''
@@ -72,4 +72,10 @@ export function refundPreview(order:ReceiptOrder, quantities:{line_id:string;qua
   const gross=order.original_subtotal??order.subtotal
   const total=gross>0?Math.min(order.total,Math.max(0,Math.round(subtotal*(order.original_total??order.total)/gross))):0
   return {subtotal,total,refund:order.total-total}
+}
+
+// Old orders retain their original account, amount and transfer message. Only
+// change VietQR's presentation template when rendering/reprinting that snapshot.
+export function receiptQrUrl(value: string): string {
+  return value.replace(/^(https:\/\/img\.vietqr\.io\/image\/[^?#]+)-(?:compact2|compact|print)\.png(?=[?#]|$)/, '$1-qr_only.png')
 }

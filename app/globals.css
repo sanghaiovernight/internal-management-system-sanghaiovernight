@@ -163,19 +163,20 @@
 }
 
 /* Thermal preview and the identical dedicated print tree. */
-.thermal-receipt { box-sizing: border-box; padding: 3mm; background: #fff; color: #000; font: 11px/1.45 monospace; font-weight: 600; overflow-wrap: anywhere; }
-.thermal-receipt * { box-sizing: border-box; color: #000; }
+.thermal-receipt { box-sizing: border-box; padding: 3mm; background: #fff; color: #000; font: 11px/1.45 "Times New Roman", Times, serif; font-weight: 400; overflow-wrap: anywhere; }
+.thermal-receipt *, #receipt-print-area { box-sizing: border-box; color: #000; font-family: "Times New Roman", Times, serif !important; }
 .receipt-center { text-align: center; }
-.receipt-store { font-size: 17px; font-weight: 900; }
+.receipt-store { font-size: 17px; font-weight: 700; }
 .receipt-rule { border-top: 1px dashed #000; margin-top: 8px; padding-top: 8px; }
 .receipt-pair { display: flex; justify-content: space-between; gap: 5px; }
-.receipt-total { font-size: 14px; font-weight: 900; }
+.receipt-total { font-size: 14px; font-weight: 700; }
 .receipt-lines { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
 .receipt-lines th, .receipt-lines td { padding: 4px 1px; vertical-align: top; overflow-wrap: anywhere; text-align: right; }
 .receipt-lines th:first-child, .receipt-lines td:first-child { text-align: left; }
-.receipt-lines thead { border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
+.receipt-lines thead { border-top: 1px solid #000; border-bottom: 1px solid #000; }
 .receipt-thanks { margin-top: 8px; white-space: pre-wrap; }
-.receipt-qr { width: 38mm; max-width: 100%; margin: 0 auto; }
+.receipt-qr-frame { width: 38mm; max-width: 100%; aspect-ratio: 1; overflow: hidden; margin: 0 auto; }
+.receipt-qr { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: grayscale(1); }
 #receipt-print-area { display: none; }
 @media print {
   html, body { margin: 0 !important; padding: 0 !important; min-width: 0 !important; background: #fff !important; color-scheme: light !important; }

@@ -5,7 +5,7 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; secondProduct?:boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; legacyQr?:boolean; secondProduct?:boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   let extra=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false}:null
   const checks:any[]=[]
@@ -94,7 +94,7 @@ async function fixture(page: Page, options: { failReceive?: boolean; failCategor
         const items=input.p_items.map((item:any,index:number)=>({...item,line_id:String(index+1),is_imported:product.is_imported}))
         const subtotal=items.reduce((sum:number,item:any)=>sum+item.price*item.quantity,0)
         const template=receiptSettings(input.p_receipt.settings)
-        const order={id:input.p_request_id,receipt_no:code,transaction_code:`ORDER-${input.p_request_id}`,created_at:new Date().toISOString(),status:'paid',version:0,activity_events:[],original_items:items,original_total:input.p_total,original_subtotal:subtotal,payment_method:input.p_method,items,subtotal,discount:subtotal-input.p_total,total:input.p_total,cash_received:input.p_receipt.cash_received,change_due:input.p_receipt.cash_received==null?null:input.p_receipt.cash_received-input.p_total,receipt_settings:template,qr_url:template.show_qr?bankQr(input.p_total,code,template):null}
+        const order={id:input.p_request_id,receipt_no:code,transaction_code:`ORDER-${input.p_request_id}`,created_at:new Date().toISOString(),status:'paid',version:0,activity_events:[],original_items:items,original_total:input.p_total,original_subtotal:subtotal,payment_method:input.p_method,items,subtotal,discount:subtotal-input.p_total,total:input.p_total,cash_received:input.p_receipt.cash_received,change_due:input.p_receipt.cash_received==null?null:input.p_receipt.cash_received-input.p_total,receipt_settings:template,qr_url:template.show_qr?bankQr(input.p_total,code,template)?.replace('-qr_only.png',options.legacyQr?'-compact2.png':'-qr_only.png'):null}
         orders.push(order);results.push(order);requestOrders.set(input.p_request_id,order)
         body={products:[{id:product.id,stock:product.stock,cost_price:product.cost_price}],order}
       }
@@ -626,7 +626,7 @@ test('designer bank fields persist and generate the actual paid bill QR without 
  await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công'})).toBeVisible()
  const qr=new URL(results[0].qr_url)
- expect(qr.pathname).toBe('/image/VCB-987654321-compact2.png')
+ expect(qr.pathname).toBe('/image/VCB-987654321-qr_only.png')
  expect(qr.searchParams.get('amount')).toBe('35000')
  expect(qr.searchParams.get('addInfo')).toBe(results[0].receipt_no)
  expect(qr.searchParams.get('accountName')).toBe('TEST OWNER')
@@ -799,4 +799,59 @@ test('stocktake formatted bounded inputs and fixed footer fit narrow mobile scre
   await expect(page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true})).toBeInViewport()
   expect(await page.getByTestId('stocktake-footer').evaluate(el=>getComputedStyle(el).position)).toBe('fixed')
  }
+})
+
+for(const width of [58,80])test(`thermal receipt K${width} shares serif fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
+ await printSpy(page)
+ const {results}=await fixture(page,{legacyQr:true})
+ const qrRequests:string[]=[]
+ await page.route('https://img.vietqr.io/image/**',async route=>{
+  qrRequests.push(route.request().url())
+  await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="490" height="490"><rect width="490" height="490" fill="white"/><rect x="40" y="40" width="410" height="410" fill="black"/></svg>'})
+ })
+ await designer(page)
+ await page.getByLabel('Khổ giấy',{exact:true}).selectOption(String(width))
+ await page.getByLabel('Tên Ngân hàng (Mã viết tắt, VD: MB, VCB)',{exact:true}).fill('MB')
+ await page.getByLabel('Số tài khoản',{exact:true}).fill('00123456')
+ await page.getByLabel('Tên chủ tài khoản',{exact:true}).fill('TEST OWNER')
+ await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).check()
+ const preview=page.getByLabel('Xem trước mẫu hóa đơn').locator('article')
+ async function checkDesign(receipt:ReturnType<Page['locator']>){
+  expect(await receipt.locator('*').evaluateAll(elements=>elements.every(el=>getComputedStyle(el).fontFamily==='"Times New Roman", Times, serif'))).toBe(true)
+  for(const selector of ['.receipt-store','h3','.receipt-lines th','.receipt-pair']){
+   expect(await receipt.locator(selector).evaluateAll(elements=>elements.length>0&&elements.every(el=>Number(getComputedStyle(el).fontWeight)>=700))).toBe(true)
+  }
+  const borders=await receipt.locator('thead').evaluate(el=>{const s=getComputedStyle(el);return [s.borderTopStyle,s.borderBottomStyle,s.borderTopWidth,s.borderBottomWidth,s.borderTopColor,s.borderBottomColor]})
+  expect(borders).toEqual(['solid','solid','1px','1px','rgb(0, 0, 0)','rgb(0, 0, 0)'])
+  const frame=receipt.locator('.receipt-qr-frame')
+  await expect(frame).toHaveText('');await expect(frame.locator('img')).toHaveCount(1)
+  expect(await frame.evaluate(el=>{const r=el.getBoundingClientRect();return Math.abs(r.width-r.height)<1&&getComputedStyle(el).overflow==='hidden'})).toBe(true)
+  await expect(receipt.getByText('Quét mã chuyển khoản',{exact:true})).toHaveCount(0)
+  expect(await receipt.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ }
+ await checkDesign(preview)
+ await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/-qr_only.png\?amount=65000/)
+ await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await page.getByRole('button',{name:new RegExp(initialProduct.name)}).first().click()
+ await page.getByRole('button',{name:'Thanh toán (F9)',exact:true}).click()
+ await page.getByLabel('Tiền khách đưa').fill('100000')
+ await page.getByRole('button',{name:'Chỉ thanh toán, không in',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Thanh toán thành công'})).toBeVisible()
+ expect(results[0].qr_url).toContain('-compact2.png') // Simulate existing server-side snapshots.
+ await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+ await page.getByRole('button',{name:new RegExp(results[0].receipt_no)}).click()
+ await page.getByRole('button',{name:'In lại hóa đơn',exact:true}).click()
+ await expect.poll(()=>page.evaluate(()=>(window as any).__prints.length)).toBe(1)
+ await page.emulateMedia({media:'print'})
+ const printed=page.locator('#receipt-print-area article')
+ await expect(printed).toBeVisible();await expect(page.locator('main')).toBeHidden()
+ await checkDesign(printed)
+ const qr=new URL(await printed.getByRole('img',{name:'QR chuyển khoản'}).getAttribute('src') as string)
+ expect(qr.pathname).toBe('/image/MB-00123456-qr_only.png')
+ expect(qr.searchParams.get('amount')).toBe('35000');expect(qr.searchParams.get('addInfo')).toBe(results[0].receipt_no)
+ expect(qrRequests.every(url=>url.includes('-qr_only.png'))).toBe(true)
+ expect(await printed.getAttribute('style')).toContain(`${width}mm`)
+ await page.emulateMedia({media:'screen'})
 })

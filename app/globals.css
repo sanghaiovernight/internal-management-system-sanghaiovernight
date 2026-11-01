@@ -163,8 +163,8 @@
 }
 
 /* Thermal preview and the identical dedicated print tree. */
-.thermal-receipt { box-sizing: border-box; padding: 3mm; background: #fff; color: #000; font: 11px/1.45 "Times New Roman", Times, serif; font-weight: 400; overflow-wrap: anywhere; }
-.thermal-receipt *, #receipt-print-area { box-sizing: border-box; color: #000; font-family: "Times New Roman", Times, serif !important; }
+.thermal-receipt { box-sizing: border-box; padding: 3mm; background: #fff; color: #000; font: 11px/1.45 Arial, "Helvetica Neue", Helvetica, sans-serif; font-weight: 400; overflow-wrap: anywhere; }
+.thermal-receipt *, #receipt-print-area { box-sizing: border-box; color: #000; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif !important; }
 .receipt-center { text-align: center; }
 .receipt-store { font-size: 17px; font-weight: 700; }
 .receipt-rule { border-top: 1px dashed #000; margin-top: 8px; padding-top: 8px; }

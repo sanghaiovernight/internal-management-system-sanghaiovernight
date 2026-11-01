@@ -801,7 +801,7 @@ test('stocktake formatted bounded inputs and fixed footer fit narrow mobile scre
  }
 })
 
-for(const width of [58,80])test(`thermal receipt K${width} shares serif fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
+for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
  await printSpy(page)
  const {results}=await fixture(page,{legacyQr:true})
  const qrRequests:string[]=[]
@@ -817,7 +817,7 @@ for(const width of [58,80])test(`thermal receipt K${width} shares serif fonts, b
  await page.getByLabel('Hiển thị mã QR chuyển khoản trên bill',{exact:true}).check()
  const preview=page.getByLabel('Xem trước mẫu hóa đơn').locator('article')
  async function checkDesign(receipt:ReturnType<Page['locator']>){
-  expect(await receipt.locator('*').evaluateAll(elements=>elements.every(el=>getComputedStyle(el).fontFamily==='"Times New Roman", Times, serif'))).toBe(true)
+  expect(await receipt.locator('*').evaluateAll(elements=>elements.every(el=>getComputedStyle(el).fontFamily==='Arial, "Helvetica Neue", Helvetica, sans-serif'))).toBe(true)
   for(const selector of ['.receipt-store','h3','.receipt-lines th','.receipt-pair']){
    expect(await receipt.locator(selector).evaluateAll(elements=>elements.length>0&&elements.every(el=>Number(getComputedStyle(el).fontWeight)>=700))).toBe(true)
   }

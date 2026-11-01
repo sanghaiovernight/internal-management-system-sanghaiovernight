@@ -825,7 +825,8 @@ for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, b
    const label=row.querySelector('span')!,amount=row.querySelector('b')!,box=row.getBoundingClientRect()
    return {size:getComputedStyle(row).fontSize,labelLeft:Math.abs(label.getBoundingClientRect().left-box.left)<1,amountRight:Math.abs(amount.getBoundingClientRect().right-box.right)<1}
   }))
-  expect(summary.length).toBe(5)
+  expect(summary.length).toBe(3)
+  await expect(receipt.getByText(/Khách đưa|Tiền thừa/)).toHaveCount(0)
   expect(summary.every(row=>row.size==='11px'&&row.labelLeft&&row.amountRight)).toBe(true)
   const borders=await receipt.locator('thead').evaluate(el=>{const s=getComputedStyle(el);return [s.borderTopStyle,s.borderBottomStyle,s.borderTopWidth,s.borderBottomWidth,s.borderTopColor,s.borderBottomColor]})
   expect(borders).toEqual(['solid','solid','1px','1px','rgb(0, 0, 0)','rgb(0, 0, 0)'])

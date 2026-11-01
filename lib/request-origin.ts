@@ -16,3 +16,18 @@ export function sameOriginRequest(request:{headers:Headers;url:string}){
   return source.origin===`${protocol}://${host}`
  }catch{return false}
 }
+
+// Next.js requires absolute redirect URLs; use the public forwarded origin,
+// rather than the internal server URL, to keep installed PWAs in their scope.
+export function publicRequestOrigin(request:{headers:Headers;url:string}){
+ const original=new URL(request.url)
+ const first=(value:string|null)=>value?.split(',')[0]?.trim()
+ const host=first(request.headers.get('x-forwarded-host'))||request.headers.get('host')||original.host
+ const protocol=first(request.headers.get('x-forwarded-proto'))||original.protocol.slice(0,-1)
+ try{
+  if(protocol!=='http'&&protocol!=='https')return original.origin
+  const url=new URL(`${protocol}://${host}`)
+  if(url.username||url.password||url.host!==host.toLowerCase()||url.pathname!=='/')return original.origin
+  return url.origin
+ }catch{return original.origin}
+}

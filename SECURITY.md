@@ -1,6 +1,6 @@
 # Internal PIN gate and PWA
 
-The webapp requires the store PIN before opening private pages. In Next.js 16 the root `proxy.ts` replaces the deprecated `middleware.ts` convention. It redirects unauthenticated page requests to `/login` and returns HTTP 401 for protected APIs. Public exceptions are the login/logout endpoints, login page, manifest, service worker and named app icons/static framework assets. Unknown paths and APIs are protected too.
+The webapp requires the store PIN before opening private pages. In Next.js 16 the root `proxy.ts` replaces the deprecated `middleware.ts` convention. It redirects unauthenticated page requests to `/login` on the public forwarded origin (preserving the installed domain behind proxies) and returns HTTP 401 for protected APIs. Public exceptions are the login/logout endpoints, login page, manifest, service worker all icon paths and static image assets (PNG/JPG/WebP/SVG/ICO), and static framework assets. Image-like API paths still require authentication. Unknown paths and APIs are protected too.
 
 Set `POS_INTERNAL_PIN` in Vercel's server environment and redeploy to choose the store PIN. The owner-requested fallback when it is unset/empty is `44448888`. Never use `NEXT_PUBLIC_` for PINs or signing secrets. Optionally set a long random `POS_SESSION_SECRET` for an independent signing secret. All instances must use the same values. Changing the PIN or signing secret invalidates existing device cookies.
 
@@ -16,8 +16,10 @@ Therefore this gate alone does not make the underlying database private. Restric
 
 ## Install on phones
 
-Open the HTTPS site, add it to the home screen/install it, then launch from the new Sanghai POS icon. Android/Chromium launches in standalone mode; iOS uses Add to Home Screen and the configured Apple icon/status bar. An ordinary browser tab retains its browser chrome. The manifest uses fixed app name/colors, `/` start/scope and 192px/512px PNG plus SVG icons. Layout provides mobile viewport and Apple webapp metadata.
+Open the HTTPS site, add it to the home screen/install it, then launch from the new Sanghai POS icon. Android/Chromium launches in standalone mode; iOS uses Add to Home Screen and the configured Apple icon/status bar. An ordinary browser tab retains its browser chrome. The manifest uses fixed app name/colors, `/` start/scope and 192px/512px PNG icons at `/icon-192.png` and `/icon-512.png`, plus a 180px Apple touch icon. The 512px PNG has separate `any` and `maskable` entries and `display_override` prefers standalone/fullscreen. Layout provides mobile viewport and Apple webapp metadata.
 
-The service worker caches only the four public app icons. Navigations always use the network and are never cached; APIs, PINs, orders, product data and authenticated HTML are not cached by it. Without network it shows a reconnect screen, not an offline POS or queued payment flow. Existing financial write/retry behavior is unchanged.
+The network-only service worker handles install/activate/fetch, claims the root scope, removes old `sanghai-pos-shell-*` caches and passes requests directly to the network. It does not cache icons, authenticated pages, APIs, PINs, orders or product data, and does not provide offline selling. `/manifest.json` and `/manifest.webmanifest` expose the same public manifest. Registration uses `updateViaCache: 'none'` and the worker response is marked no-store for updates.
+
+On Android remove the previously created Chrome shortcut, open the deployed HTTPS site directly in Chrome, use **Install app** (not Create shortcut), and launch the newly installed icon. Changes to manifest/code cannot turn an existing shortcut into a WebAPK automatically. Chrome/Google Play services and device policy control the final installation mode; desktop installability tests cannot certify a physical Xiaomi installation.
 
 Validation uses isolated unit/SQL tests and browser requests against the local test server. Browser business fixtures sign in using a dedicated test PIN/signing secret set only on the Playwright server; no production database sales are created.

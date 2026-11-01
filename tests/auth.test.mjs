@@ -57,3 +57,19 @@ test('browser same-origin metadata survives proxy rewrites without allowing cros
  request.headers.set('sec-fetch-site','same-origin');request.headers.set('origin','null');assert.equal(sameOriginRequest(request),false)
  request.headers.set('origin','https://pos.shop.example/path');assert.equal(sameOriginRequest(request),false)
 })
+
+
+test('PWA and static image resources bypass the PIN gate while API image suffixes stay protected',async()=>{
+ const {publicPwaAsset}=await import('../lib/public-pwa-assets.ts')
+ for(const path of ['/manifest.json','/manifest.webmanifest','/sw.js','/icon-192.png','/icon-512.png','/apple-touch-icon.png','/icons/pos.svg','/icon-custom','/apple-icon-custom','/favicon.ico','/products/example.jpg','/photos/a.webp','/nested/a.PNG'])assert.equal(publicPwaAsset(path),true,path)
+ for(const path of ['/','/reports','/api/orders','/api/orders.png','/api/private.svg','/manifest.webmanifest/private'])assert.equal(publicPwaAsset(path),false,path)
+})
+
+
+test('login redirects use the public proxy origin so installed PWAs stay on their installed domain',async()=>{
+ const {publicRequestOrigin}=await import('../lib/request-origin.ts')
+ const request={url:'http://internal.vercel.local/private',headers:new Headers({host:'internal.vercel.local','x-forwarded-host':'pos.shop.example','x-forwarded-proto':'https'})}
+ assert.equal(publicRequestOrigin(request),'https://pos.shop.example')
+ request.headers.set('x-forwarded-host','pos.shop.example, internal.local');assert.equal(publicRequestOrigin(request),'https://pos.shop.example')
+ request.headers.set('x-forwarded-host','user@untrusted.example');assert.equal(publicRequestOrigin(request),'http://internal.vercel.local')
+})

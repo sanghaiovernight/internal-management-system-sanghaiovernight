@@ -5,12 +5,12 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; paperWidth?:58|80; legacyQr?:boolean; secondProduct?:boolean } = {}) {
+async function fixture(page: Page, options: { extraCategories?:string[]; failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; paperWidth?:58|80; legacyQr?:boolean; secondProduct?:boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   let extra=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false}:null
   const checks:any[]=[]
   const checkRequests:any[]=[]
-  const categories = [{ name: 'Đồ đóng gói' }]
+  const categories = [{ name: 'Đồ đóng gói' },...(options.extraCategories??[]).map(name=>({name}))]
   let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:options.paperWidth??80,auto_print:options.autoPrint??false,show_qr:false }
   let orders:any[] = []
   let imports: Record<string, any>[] = []
@@ -864,4 +864,44 @@ for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${w
  expect(await printed.getAttribute('style')).toContain('80mm')
  expect(await page.locator('#receipt-print-area style').textContent()).toContain('size: 80mm auto')
  await page.emulateMedia({media:'screen'})
+})
+
+test('search icons stay centered inside their own inputs when category filters wrap on mobile',async({page})=>{
+ await fixture(page,{stock:3,extraCategories:['Nhóm hàng có tên rất dài để kiểm tra xuống dòng','Nhóm thử nghiệm thứ hai','Đồ uống đặc biệt']})
+ async function checkIcon(label:string){
+  const search=page.getByRole('textbox',{name:label,exact:true})
+  const geometry=await search.evaluate(input=>{
+   const icon=input.parentElement!.querySelector('svg')!,a=input.getBoundingClientRect(),b=icon.getBoundingClientRect()
+   return {inside:b.left>=a.left&&b.right<=a.right&&b.top>=a.top&&b.bottom<=a.bottom,centered:Math.abs((b.top+b.bottom-a.top-a.bottom)/2)<1,padding:parseFloat(getComputedStyle(input).paddingLeft),pointer:getComputedStyle(icon).pointerEvents}
+  })
+  expect(geometry).toEqual({inside:true,centered:true,padding:40,pointer:'none'})
+ }
+ for(const width of [320,393,768,1280]){
+  await page.setViewportSize({width,height:900})
+  await page.getByRole('button',{name:'POS',exact:true}).click();await checkIcon('Tìm sản phẩm POS')
+  await inventory(page);await checkIcon('Tìm hàng trong kho')
+  await page.getByRole('button',{name:'Báo cáo',exact:true}).click();await checkIcon('Tìm nhanh sản phẩm')
+  const search=page.getByRole('textbox',{name:'Tìm nhanh sản phẩm',exact:true})
+  expect(await search.evaluate(input=>{const filters=input.parentElement!.previousElementSibling!;return filters.getBoundingClientRect().bottom<=input.getBoundingClientRect().top})).toBe(true)
+  await search.fill('Không tồn tại')
+  const stock=page.locator('section').filter({has:page.getByRole('heading',{name:'Cảnh báo tồn kho',exact:true})})
+  await expect(stock.getByText(initialProduct.name,{exact:true})).toHaveCount(0)
+  await search.fill('')
+  await expect(stock.getByText(initialProduct.name,{exact:true})).toBeVisible()
+ }
+})
+test('invoice date and search filters stack at full width on mobile and form two columns on larger screens',async({page})=>{
+ await fixture(page)
+ await page.getByRole('button',{name:'Hóa đơn & Mẫu in',exact:true}).click()
+ for(const width of [320,393,430,640,768,1280]){
+  await page.setViewportSize({width,height:900})
+  const date=page.getByRole('textbox',{name:'Ngày thanh toán',exact:true}),search=page.getByRole('textbox',{name:'Tìm hóa đơn',exact:true})
+  const first=(await date.boundingBox())!,second=(await search.boundingBox())!
+  if(width<640){expect(second.y).toBeGreaterThan(first.y+first.height);expect(Math.abs(second.x-first.x)).toBeLessThan(1);expect(Math.abs(second.width-first.width)).toBeLessThan(1);expect(second.width).toBeGreaterThan(250)}
+  else {expect(Math.abs(second.y-first.y)).toBeLessThan(1);expect(second.x).toBeGreaterThan(first.x+first.width)}
+  await expect(search).toHaveAttribute('placeholder','Mã đơn hoặc tên món')
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ }
+ await searchFilter()
+ async function searchFilter(){await page.getByRole('textbox',{name:'Tìm hóa đơn',exact:true}).fill('Món thử');await expect(page.getByText('Không có hóa đơn phù hợp.',{exact:true})).toBeVisible()}
 })

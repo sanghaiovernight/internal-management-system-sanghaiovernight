@@ -34,3 +34,9 @@ Camera scanning uses ZXing and requires HTTPS, camera permission and an availabl
 ## Hóa đơn & Mẫu in
 
 The main navigation includes invoice history/reprinting and a live K80/K58 designer. Apply the third migration documented in [Supabase setup](supabase/README.md) before using the new checkout. Saved templates support offline device storage with an explicit pending-sync message. Actual payments are never simulated offline. Invoice history reads `pos_orders` and filters by Vietnam calendar date, bill number or item name. Reprints use the original bill/template snapshot when present. `Thanh toán & In hóa đơn` prints only after a successful save; `Chỉ thanh toán, không in` explicitly overrides auto-print. Printing failure does not undo a paid bill or repeat checkout.
+
+## Appearance
+
+The header and PIN login page share a mobile-friendly Light/Dark toggle. The device preference is stored as `light`/`dark` under `sanghai_pos_theme`, defaults to light independently of OS theme, survives session locking and synchronizes across tabs. An early head script applies the HTML class before the body paints. The shared provider also updates the live `theme-color` meta tag (`#d97706` / `#12100e`) without creating React-managed metadata duplicates.
+
+Application surfaces, fields, borders, typography and feedback colors use semantic CSS variables in `app/globals.css`. Dark mode uses the Warm Espresso palette across every tab and body portal. Thermal receipt preview and print trees explicitly retain white paper, black ink and a light color scheme. No database migration or environment changes are needed for appearance settings.

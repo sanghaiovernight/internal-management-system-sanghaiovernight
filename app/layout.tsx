@@ -1,6 +1,8 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import ThemeProvider from '@/components/theme-provider'
+import {themeBootstrap} from '@/lib/theme'
 import PwaRegistration from '@/components/pwa-registration'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 
@@ -20,7 +22,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   width:'device-width',initialScale:1,maximumScale:1,userScalable:false,viewportFit:'cover',
-  colorScheme:'light dark',themeColor:'#d97706',
+  colorScheme:'light dark',
 }
 
 export default function RootLayout({
@@ -29,9 +31,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="vi">
+    <html lang="vi" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{__html:themeBootstrap}}/></head>
       <body className="antialiased">
-        <ConfirmProvider>{children}</ConfirmProvider>
+        <ThemeProvider><ConfirmProvider>{children}</ConfirmProvider></ThemeProvider>
         <PwaRegistration/>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

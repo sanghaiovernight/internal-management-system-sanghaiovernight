@@ -20,5 +20,5 @@ export default function SessionLock({disabled=false}:{disabled?:boolean}){
   if(busy)return;setBusy(true);setError('')
   try{const response=await fetch('/api/auth/logout',{method:'POST'});if(!response.ok)throw new Error();try{localStorage.setItem('pos-session-locked',String(Date.now()))}catch{}discardPrivateCache();window.location.replace('/login')}
   catch{setBusy(false);setError('Chưa khóa được phiên. Hãy kiểm tra kết nối rồi thử lại.')}
- }} className="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-semibold text-stone-500 hover:bg-orange-50 hover:text-amber-700 disabled:opacity-40"><LockKeyhole className="size-4"/>{busy?'Đang khóa...':'Khóa phiên'}</button>{error&&<p role="alert" className="max-w-48 text-xs text-red-700">{error}</p>}</div>
+ }} className="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-semibold text-subtle hover:bg-tint hover:text-accent-ink disabled:opacity-40"><LockKeyhole className="size-4"/>{busy?'Đang khóa...':'Khóa phiên'}</button>{error&&<p role="alert" className="max-w-48 text-xs text-danger-ink">{error}</p>}</div>
 }

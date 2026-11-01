@@ -43,18 +43,18 @@ export function CameraScanner({ onScan, onClose }: { onScan: (code: string) => v
     }
   }, [])
   return <div className="fixed inset-0 z-[70] grid place-items-center bg-black/70 p-4" onClick={onClose}>
-    <div role="dialog" aria-modal="true" aria-labelledby="scanner-title" className="w-full max-w-md rounded-2xl bg-white p-4 text-stone-900 dark:bg-stone-900 dark:text-white" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
+    <div role="dialog" aria-modal="true" aria-labelledby="scanner-title" className="w-full max-w-md rounded-2xl bg-surface p-4 text-ink" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
       if (event.key === 'Escape') { event.stopPropagation(); onClose() }
       if (event.key === 'Tab') { event.preventDefault(); closeButton.current?.focus() }
     }}>
       <div className="mb-3 flex items-center justify-between"><h2 id="scanner-title" className="font-bold">Quét Barcode / QR</h2><button ref={closeButton} type="button" onClick={onClose} aria-label="Đóng camera" className="rounded-lg p-2"><X /></button></div>
       <video ref={video} muted playsInline className="aspect-video w-full rounded-xl bg-black object-cover" />
       <p className="mt-3 text-sm">Đưa mã Barcode hoặc QR của sản phẩm vào khung hình.</p>
-      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-danger-ink">{error}</p>}
     </div>
   </div>
 }
 
 export function ScanButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 dark:text-amber-400"><Camera className="size-4" /> Quét mã</button>
+  return <button type="button" onClick={onClick} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-field-line px-3 py-2 text-sm font-semibold text-accent-ink"><Camera className="size-4" /> Quét mã</button>
 }

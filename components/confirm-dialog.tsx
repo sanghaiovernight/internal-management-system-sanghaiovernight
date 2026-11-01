@@ -17,7 +17,7 @@ export function ConfirmDialog({ title, description, confirmLabel = 'Xóa', onRes
     return () => { document.body.style.overflow = oldOverflow; previous?.focus() }
   }, [])
   return createPortal(<div data-testid="confirm-backdrop" className="fixed inset-0 z-[100] grid place-items-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onResolve(false) }}>
-    <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} className="w-full max-w-md rounded-2xl bg-white p-6 text-stone-900 shadow-2xl" onKeyDown={(event) => {
+    <div ref={ref} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} className="w-full max-w-md rounded-2xl bg-surface p-6 text-ink shadow-2xl" onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onResolve(false) }
       if (event.key === 'Tab') {
         const buttons = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])
@@ -26,8 +26,8 @@ export function ConfirmDialog({ title, description, confirmLabel = 'Xóa', onRes
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
       }
     }}>
-      <h2 id={`${id}-title`} className="text-xl font-bold">{title}</h2><p id={`${id}-description`} className="mt-3 break-words text-sm leading-6 text-stone-600">{description}</p>
-      <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => onResolve(false)} className="rounded-xl bg-stone-100 px-5 py-2.5 font-semibold text-stone-600">Hủy</button><button type="button" onClick={() => onResolve(true)} className="rounded-xl bg-red-600 px-5 py-2.5 font-semibold text-white hover:bg-red-700">{confirmLabel}</button></div>
+      <h2 id={`${id}-title`} className="text-xl font-bold">{title}</h2><p id={`${id}-description`} className="mt-3 break-words text-sm leading-6 text-subtle">{description}</p>
+      <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => onResolve(false)} className="rounded-xl bg-inset px-5 py-2.5 font-semibold text-subtle">Hủy</button><button type="button" onClick={() => onResolve(true)} className="rounded-xl bg-red-600 px-5 py-2.5 font-semibold text-white hover:bg-red-700">{confirmLabel}</button></div>
     </div>
   </div>,document.body)
 }

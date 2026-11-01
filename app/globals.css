@@ -5,6 +5,28 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-canvas: var(--background);
+  --color-surface: var(--card);
+  --color-field: var(--field);
+  --color-field-ink: var(--field-foreground);
+  --color-field-line: var(--field-line);
+  --color-inset: var(--secondary);
+  --color-line: var(--border);
+  --color-ink: var(--foreground);
+  --color-subtle: var(--muted-foreground);
+  --color-brand: var(--primary);
+  --color-brand-hover: var(--brand-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-tint: var(--tint);
+  --color-price: var(--price);
+  --color-tooltip: var(--tooltip);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-ink: var(--danger-ink);
+  --color-success-soft: var(--success-soft);
+  --color-success-ink: var(--success-ink);
+  --color-info-soft: var(--info-soft);
+  --color-info-ink: var(--info-ink);
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -47,110 +69,39 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(0.98 0.004 160);
-  --foreground: oklch(0.22 0.025 170);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #faf7f2; --foreground: #2a1810;
+  --card: #ffffff; --card-foreground: #2a1810;
+  --popover: #ffffff; --popover-foreground: #2a1810;
+  --primary: #d97706; --primary-foreground: #ffffff; --brand-hover: #b45309;
+  --secondary: #f5f5f4; --secondary-foreground: #292524;
+  --muted: #f5f5f4; --muted-foreground: #78716c;
+  --accent: #fff7ed; --accent-foreground: #9a3412;
+  --border: #e7e5e4; --input: #d6d3d1; --field: #ffffff; --field-foreground: #2a1810; --field-line: #d6d3d1;
+  --ring: #d97706; --radius: 0.625rem;
+  --accent-ink: #b45309; --tint: #fff4df; --price: #b45309; --tooltip: #292524;
+  --danger-soft: #fef2f2; --danger-ink: #b91c1c; --destructive: #dc2626;
+  --success-soft: #ecfdf5; --success-ink: #047857;
+  --info-soft: #eff6ff; --info-ink: #1d4ed8;
+  --chart-1: #f97316; --chart-2: #fb923c; --chart-3: #f59e0b; --chart-4: #10b981; --chart-5: #818cf8;
+  --sidebar: var(--card); --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary); --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--secondary); --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border); --sidebar-ring: var(--ring);
 }
-
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    color-scheme: dark;
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
-  }
+  --background: #12100e; --foreground: #f5f5f4;
+  --card: #1c1917; --card-foreground: #f5f5f4;
+  --popover: #1c1917; --popover-foreground: #f5f5f4;
+  --primary: #ea580c; --primary-foreground: #ffffff; --brand-hover: #c2410c;
+  --secondary: #26221e; --secondary-foreground: #e7e5e4;
+  --muted: #26221e; --muted-foreground: #a8a29e;
+  --accent: #332517; --accent-foreground: #fed7aa;
+  --border: #2e2925; --input: #3f3a36; --field: #26221e; --field-foreground: #e7e5e4; --field-line: #3f3a36;
+  --ring: #fb923c; --accent-ink: #fed7aa; --tint: #332517; --price: #f5f5f4; --tooltip: #26221e;
+  --danger-soft: #3a2020; --danger-ink: #fca5a5; --destructive: #ef4444;
+  --success-soft: #18362b; --success-ink: #6ee7b7;
+  --info-soft: #1e2b3a; --info-ink: #93c5fd;
 }
 
 @layer base {
@@ -187,3 +138,22 @@
   .thermal-receipt { max-width: 100%; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .receipt-lines tr { break-inside: avoid; }
 }
+
+/* Shared native controls and charts use the same palette in every portal/page. */
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: var(--field); color: var(--field-foreground); border-color: var(--field-line);
+}
+:where(input, textarea)::placeholder { color: var(--muted-foreground); opacity: 1; }
+:where(input[type="checkbox"], input[type="radio"]) { accent-color: var(--primary); }
+input::file-selector-button { margin-right: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--secondary); color: var(--foreground); }
+:where(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.recharts-cartesian-axis-tick-value { fill: var(--muted-foreground); }
+.recharts-legend-item-text { color: var(--muted-foreground) !important; }
+.recharts-default-tooltip { background: var(--popover) !important; border: 1px solid var(--border) !important; color: var(--foreground) !important; border-radius: 12px; }
+.recharts-tooltip-label { color: var(--foreground); }
+@media (prefers-reduced-motion: no-preference) {
+  body, [data-testid="app-shell"], header, nav, [role="dialog"], [role="alertdialog"] { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
+}
+/* A receipt is a physical paper preview in both themes. Never recolor its ink. */
+.thermal-receipt, #receipt-print-area { background: #ffffff !important; color: #000000 !important; color-scheme: light; }
+.thermal-receipt * { color: #000000 !important; }

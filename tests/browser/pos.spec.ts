@@ -5,9 +5,12 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { extraCategories?:string[]; failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; paperWidth?:58|80; legacyQr?:boolean; secondProduct?:boolean } = {}) {
-  let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
-  let extra=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false}:null
+async function fixture(page: Page, options: { failStorage?:boolean; extraCategories?:string[]; failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; paperWidth?:58|80; legacyQr?:boolean; secondProduct?:boolean } = {}) {
+  let product:any = { ...initialProduct, stock: options.stock ?? 8, product_type:options.retail===false?'processed':'retail', is_imported: options.retail ?? true }
+  let extra:any=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false,product_type:'processed'}:null
+  const added:any[]=[]
+  const productWrites:any[]=[]
+  const uploaded:Buffer[]=[]
   const checks:any[]=[]
   const checkRequests:any[]=[]
   const categories = [{ name: 'Đồ đóng gói' },...(options.extraCategories??[]).map(name=>({name}))]
@@ -22,6 +25,15 @@ async function fixture(page: Page, options: { extraCategories?:string[]; failRec
   const requests: string[] = []
   await page.route('https://**/*', async (route) => {
     const url = new URL(route.request().url())
+    if(url.hostname==='cdn.example.test'){await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="orange"/></svg>'});return}
+    if(url.pathname.includes('/storage/v1/object/')){
+      if(route.request().method()==='POST'){
+        const raw=route.request().postDataBuffer()!,start=raw.indexOf(Buffer.from('RIFF'))
+        if(start>=0)uploaded.push(raw.subarray(start,start+raw.readUInt32LE(start+4)+8))
+        await route.fulfill({status:options.failStorage?403:200,contentType:'application/json',body:JSON.stringify(options.failStorage?{message:'Storage denied',error:'Unauthorized'}:{Key:url.pathname.split('/object/')[1],Id:'test-photo'})})
+      }else await route.fulfill({contentType:'image/webp',body:uploaded.at(-1)??Buffer.alloc(0)})
+      return
+    }
     if (!url.pathname.includes('/rest/v1/')) { await route.abort(); return }
     const table = url.pathname.split('/').at(-1)
     const method = route.request().method()
@@ -38,21 +50,29 @@ async function fixture(page: Page, options: { extraCategories?:string[]; failRec
       else {
         const saved=checks.find(row=>row.id===input.p_request_id)
         const lines=saved?.lines??input.p_lines.map((line:any)=>{
-          const current=line.product_id===product.id?product:extra!
+          const current=line.product_id===product.id?product:extra?.id===line.product_id?extra:added.find(row=>row.id===line.product_id)!
           const delta=line.actual_stock-current.stock
           const cost=current.is_imported&&delta>0?Math.round((Math.max(0,current.stock)*current.cost_price+delta*line.unit_cost)/(Math.max(0,current.stock)+delta)):current.cost_price
           const next={...current,stock:line.actual_stock,cost_price:cost}
-          if(current.id===product.id)product=next;else extra=next
+          if(current.id===product.id)product=next;else if(extra?.id===current.id)extra=next;else added[added.findIndex(row=>row.id===current.id)]=next
           return {product_id:current.id,name:current.name,stock_before:current.stock,stock_after:next.stock,cost_before:current.cost_price,cost_after:cost,delta,unit_cost:line.unit_cost,is_imported:current.is_imported}
         })
         const sheet=saved??{id:input.p_request_id,check_no:'KK0111001',created_at:new Date().toISOString(),lines,total_increase:lines.reduce((n:number,l:any)=>n+Math.max(0,l.delta),0),total_decrease:lines.reduce((n:number,l:any)=>n+Math.max(0,-l.delta),0)}
         if(!saved)checks.push(sheet)
-        body={sheet,products:[product,...(extra?[extra]:[])]}
+        body={sheet,products:[product,...(extra?[extra]:[]),...added]}
       }
     }
     else if (table === 'pos_products') {
-      if (method === 'PATCH') product = { ...product, ...route.request().postDataJSON() }
-      body = method === 'GET' ? [product,...(extra?[extra]:[])] : product
+      let saved=product
+      if(method==='POST'){const input=route.request().postDataJSON();productWrites.push(input);saved={...input};added.push(saved)}
+      if(method==='PATCH'){
+        const input=route.request().postDataJSON(),id=url.searchParams.get('id')?.replace(/^eq\./,'')??product.id
+        productWrites.push({id,...input})
+        if(id===product.id){product={...product,...input};saved=product}
+        else if(extra?.id===id){extra={...extra,...input};saved=extra}
+        else {const index=added.findIndex(row=>row.id===id);added[index]={...added[index],...input};saved=added[index]}
+      }
+      body = method === 'GET' ? [product,...(extra?[extra]:[]),...added] : saved
     } else if (table === 'pos_categories') {
       if (method === 'POST') {
         if (options.failCategory) { status = 403; body = { message: 'permission denied' } }
@@ -70,12 +90,15 @@ async function fixture(page: Page, options: { extraCategories?:string[]; failRec
       body = options.cartQuantity ? [{ product_id: product.id, quantity: options.cartQuantity }] : []
     } else if (table === 'pos_receive_stock_v2') {
       const input = route.request().postDataJSON()
+      const target=input.p_product_id===product.id?product:added.find(row=>row.id===input.p_product_id)!
       receipts.push(input)
       if (options.failReceive) { status = 403; body = { message: 'permission denied' } }
       else {
+        const beforeProduct=product;product=target
         const receipt = { receipt_no:`PN${new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit'}).format(new Date()).replaceAll('/','')}${String(imports.length+1).padStart(3,'0')}`, id: input.p_receipt_id, product_id: product.id, product_name: product.name, quantity: input.p_quantity, unit_cost: input.p_total / input.p_quantity, total_cost: input.p_total, created_at: new Date().toISOString(), cost_before: product.cost_price, stock_before: product.stock, reversible: true }
         product = { ...product, stock: product.stock + input.p_quantity, cost_price: Math.round((Math.max(0,product.stock)*product.cost_price+input.p_total)/(Math.max(0,product.stock)+input.p_quantity)) }
         imports = [receipt, ...imports]; body = { stock: product.stock, cost_price: product.cost_price, receipt }
+        if(target.id!==beforeProduct.id){added[added.findIndex(row=>row.id===target.id)]=product;product=beforeProduct}
       }
     } else if (table === 'pos_void_stock_import') {
       const receipt = imports.find((row) => row.id === route.request().postDataJSON().p_id)!
@@ -119,7 +142,7 @@ async function fixture(page: Page, options: { extraCategories?:string[]; failRec
   })
   await page.goto('/')
   await expect(page.getByRole('button', { name: new RegExp(initialProduct.name) }).first()).toBeVisible()
-  return { receipts, payments, requests, results,checkRequests }
+  return { receipts, payments, requests, results,checkRequests,productWrites,uploaded }
 }
 
 async function inventory(page: Page) {
@@ -939,4 +962,150 @@ test('revenue, TA and TC use day-month dates in bar/line axes and pie legends ac
  await expect(page.locator('section').filter({has:page.getByRole('heading',{name:'Biểu đồ trong tháng',exact:true})}).getByText('01-11',{exact:true})).toBeVisible()
  await page.getByRole('button',{name:'Hôm nay',exact:true}).click()
  await expect(page.locator('section').filter({has:page.getByRole('heading',{name:'Biểu đồ theo giờ (Hôm nay)',exact:true})}).getByText('00h',{exact:true})).toBeVisible()
+})
+
+
+async function samplePhoto(page:Page){
+ return Buffer.from(await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=2400;canvas.height=1200;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#ee8844';ctx.fillRect(0,0,2400,1200);return canvas.toDataURL('image/png').split(',')[1]}),'base64')
+}
+async function editProduct(page:Page,name=initialProduct.name){await page.getByRole('button',{name:`Sửa ${name}`,exact:true}).click()}
+async function saveProduct(page:Page){await page.getByRole('dialog').getByRole('button',{name:'Lưu',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0)}
+
+test('create ingredient, import with MAC, stocktake surplus/loss and low-stock report without exposing it to POS',async({page})=>{
+ const {productWrites,receipts,checkRequests}=await fixture(page)
+ await inventory(page)
+ await page.getByRole('button',{name:'Thêm mặt hàng',exact:true}).click()
+ await page.getByLabel('Tên mặt hàng',{exact:true}).fill('Nguyên liệu sữa')
+ await page.getByLabel('Loại mặt hàng',{exact:true}).selectOption('ingredient')
+ await expect(page.getByLabel('Loại mặt hàng').locator('option')).toHaveText(['Hàng bán lẻ','Đồ chế biến','Nguyên liệu'])
+ await expect(page.getByLabel('Giá bán',{exact:true})).toBeDisabled()
+ await page.getByLabel('Giá vốn',{exact:true}).fill('6000')
+ await page.getByLabel('Mã sản phẩm',{exact:true}).fill('ING00001')
+ await saveProduct(page)
+ expect(productWrites.at(-1)).toMatchObject({product_type:'ingredient',is_imported:true,price:0,cost_price:6000})
+ const card=page.getByTestId('inventory-card').filter({hasText:'Nguyên liệu sữa'})
+ await expect(card.getByText('Nguyên liệu',{exact:true})).toBeVisible()
+ await expect(page.getByText('Mặt hàng sắp hết',{exact:true}).locator('..')).toContainText('1')
+ await page.getByRole('button',{name:'Nhập hàng',exact:true}).click()
+ await page.getByLabel('Tìm mặt hàng nhập').fill('ING00001');await page.getByLabel('Tìm mặt hàng nhập').press('Enter')
+ await page.getByLabel('Số lượng nhập',{exact:true}).fill('10');await page.getByLabel('Tổng tiền nhập',{exact:true}).fill('60000')
+ await page.getByRole('button',{name:'Lưu phiếu nhập',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã lưu phiếu nhập'})).toBeVisible()
+ expect(receipts[0]).toMatchObject({p_quantity:10,p_total:60000,p_product_id:productWrites[0].id})
+ await page.getByRole('button',{name:'Kiểm kho',exact:true}).click()
+ await page.getByLabel('Tồn thực tế Nguyên liệu sữa',{exact:true}).fill('15')
+ await expect(page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true})).toBeDisabled()
+ await page.getByLabel('Giá vốn phần tăng Nguyên liệu sữa',{exact:true}).fill('9000')
+ await page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true}).click()
+ await expect(page.getByRole('status').filter({hasText:'Đã hoàn thành phiếu kiểm kho'})).toBeVisible()
+ expect(checkRequests[0].p_lines[0]).toMatchObject({expected_is_imported:true,unit_cost:9000,actual_stock:15})
+ await page.getByLabel('Tồn thực tế Nguyên liệu sữa',{exact:true}).fill('3')
+ await page.getByRole('button',{name:'Hoàn thành kiểm kho',exact:true}).click()
+ await expect(page.getByLabel('Tồn thực tế Nguyên liệu sữa',{exact:true})).toHaveValue('')
+ await page.getByRole('button',{name:'Tồn kho',exact:true}).click()
+ await expect(card.getByTestId('inventory-cost')).toHaveText('7.000đ')
+ await page.getByRole('button',{name:'Báo cáo',exact:true}).click()
+ await expect(page.locator('section').filter({has:page.getByRole('heading',{name:'Cảnh báo tồn kho',exact:true})}).getByText('Nguyên liệu sữa',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await expect(page.getByRole('button',{name:/Nguyên liệu sữa/})).toHaveCount(0)
+ const search=page.getByLabel('Tìm sản phẩm POS')
+ await search.fill('Nguyên liệu sữa');await expect(page.getByRole('button',{name:/Nguyên liệu sữa/})).toHaveCount(0)
+ await search.fill('ING00001');await search.press('Enter')
+ await expect(page.getByRole('status').filter({hasText:'Không tìm thấy sản phẩm'})).toBeVisible()
+ await search.fill('');await page.locator('h1').click();await page.keyboard.type('ING00001',{delay:5});await page.keyboard.press('Enter')
+ await expect(page.getByRole('button',{name:/Nguyên liệu sữa/})).toHaveCount(0)
+ await page.reload();await page.getByRole('button',{name:'Kho hàng',exact:true}).click()
+ await editProduct(page,'Nguyên liệu sữa');await expect(page.getByLabel('Loại mặt hàng')).toHaveValue('ingredient')
+})
+
+test('existing item URL image saves immediately to inventory thumbnail and POS and can be removed',async({page})=>{
+ const {productWrites}=await fixture(page);await inventory(page);await editProduct(page)
+ await page.getByLabel('URL ảnh sản phẩm').fill('https://cdn.example.test/product.webp')
+ await expect(page.getByRole('img',{name:'Xem trước ảnh sản phẩm'})).toBeVisible()
+ await saveProduct(page)
+ await expect(page.getByRole('img',{name:`Ảnh ${initialProduct.name}`})).toBeVisible()
+ expect(productWrites.at(-1)).toMatchObject({image_url:'https://cdn.example.test/product.webp'})
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await expect(page.getByRole('img',{name:initialProduct.name,exact:true})).toBeVisible()
+ await page.reload();await expect(page.getByRole('img',{name:initialProduct.name,exact:true})).toBeVisible()
+ await inventory(page);await editProduct(page)
+ await page.getByRole('button',{name:'Xóa ảnh',exact:true}).click();await saveProduct(page)
+ expect(productWrites.at(-1).image_url).toBeNull()
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await expect(page.getByRole('img',{name:initialProduct.name,exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:new RegExp(initialProduct.name)}).first()).toBeVisible()
+})
+
+test('new item photo is resized to 600px, uploaded and shown on POS without reloading',async({page})=>{
+ const {productWrites,uploaded}=await fixture(page)
+ const photo=await samplePhoto(page)
+ await inventory(page);await page.getByRole('button',{name:'Thêm mặt hàng',exact:true}).click()
+ await page.getByLabel('Tên mặt hàng',{exact:true}).fill('Món có ảnh')
+ await page.getByLabel('Loại mặt hàng').selectOption('processed')
+ await page.getByLabel('Giá bán',{exact:true}).fill('25000')
+ await page.getByLabel('Chọn ảnh sản phẩm').setInputFiles({name:'photo.png',mimeType:'image/png',buffer:photo})
+ await expect(page.getByRole('status').filter({hasText:'Đã tải ảnh.'})).toBeVisible()
+ expect(uploaded).toHaveLength(1)
+ const dimensions=await page.evaluate(async encoded=>{const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));const bitmap=await createImageBitmap(new Blob([bytes],{type:'image/webp'}));return [bitmap.width,bitmap.height]},uploaded[0].toString('base64'))
+ expect(dimensions).toEqual([600,300]);expect(uploaded[0].length).toBeLessThan(photo.length)
+ await saveProduct(page)
+ expect(productWrites.at(-1)).toMatchObject({product_type:'processed',is_imported:false})
+ expect(productWrites.at(-1).image_url).toContain('/storage/v1/object/public/product-images/products/')
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ const image=page.getByRole('img',{name:'Món có ảnh',exact:true})
+ await expect(image).toBeVisible()
+ expect(await image.evaluate(el=>{const r=el.parentElement!.getBoundingClientRect();return Math.abs(r.width/r.height-4/3)<0.02})).toBe(true)
+ for(const width of [320,393,768]){await page.setViewportSize({width,height:850});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)}
+})
+
+test('Storage failure falls back to compressed data URL that survives save and reload',async({page})=>{
+ const {productWrites}=await fixture(page,{failStorage:true});const photo=await samplePhoto(page)
+ await inventory(page);await editProduct(page)
+ await page.getByLabel('Chọn ảnh sản phẩm').setInputFiles({name:'photo.png',mimeType:'image/png',buffer:photo})
+ await expect(page.getByRole('status').filter({hasText:'Ảnh nén sẽ được lưu cùng mặt hàng'})).toBeVisible()
+ await saveProduct(page)
+ expect(productWrites.at(-1).image_url).toMatch(/^data:image\/webp;base64,/)
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await expect(page.getByRole('img',{name:initialProduct.name,exact:true})).toBeVisible()
+ await page.reload();await expect(page.getByRole('img',{name:initialProduct.name,exact:true})).toBeVisible()
+})
+
+test('invalid images and unsafe URLs never upload or save a product mutation',async({page})=>{
+ const {uploaded,productWrites}=await fixture(page);await inventory(page);await editProduct(page)
+ await page.getByLabel('Chọn ảnh sản phẩm').setInputFiles({name:'unsafe.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg/>')})
+ await expect(page.getByRole('status').filter({hasText:'Chọn ảnh JPG'})).toBeVisible()
+ expect(uploaded).toHaveLength(0)
+ await page.getByLabel('Chọn ảnh sản phẩm').setInputFiles({name:'broken.png',mimeType:'image/png',buffer:Buffer.from('invalid PNG')})
+ await expect(page.getByRole('status').filter({hasText:'Không đọc được ảnh.'})).toBeVisible()
+ expect(uploaded).toHaveLength(0)
+ await page.getByLabel('URL ảnh sản phẩm').fill('javascript:alert(1)')
+ await page.getByRole('dialog').getByRole('button',{name:'Lưu',exact:true}).click()
+ await expect(page.getByRole('dialog').getByRole('alert').filter({hasText:'URL ảnh phải là HTTP/HTTPS'})).toBeVisible()
+ expect(productWrites).toHaveLength(0)
+})
+
+test('turning a cart item into ingredient blocks checkout and hides it after reload',async({page})=>{
+ const {payments,productWrites}=await fixture(page,{cartQuantity:1})
+ await inventory(page);await editProduct(page)
+ await page.getByLabel('Loại mặt hàng').selectOption('ingredient');await saveProduct(page)
+ expect(productWrites.at(-1)).toMatchObject({product_type:'ingredient',is_imported:true,price:0})
+ await page.getByRole('button',{name:'POS',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Thanh toán (F9)',exact:true})).toBeDisabled()
+ await page.keyboard.press('F9');expect(payments).toHaveLength(0)
+ await expect(page.getByRole('button',{name:new RegExp(initialProduct.name)}).filter({has:page.locator('img')})).toHaveCount(0)
+ await page.reload();await expect(page.getByRole('button',{name:'Thanh toán (F9)',exact:true})).toBeDisabled()
+ expect(payments).toHaveLength(0)
+})
+
+
+test('all three product kinds persist their canonical type and inventory flag after editing',async({page})=>{
+ const {productWrites}=await fixture(page);await inventory(page)
+ for(const [kind,imported]of [['processed',false],['ingredient',true],['retail',true]] as const){
+  await editProduct(page)
+  await page.getByLabel('Loại mặt hàng').selectOption(kind);await saveProduct(page)
+  expect(productWrites.at(-1)).toMatchObject({product_type:kind,is_imported:imported})
+  await page.reload();await page.getByRole('button',{name:'Kho hàng',exact:true}).click();await editProduct(page)
+  await expect(page.getByLabel('Loại mặt hàng')).toHaveValue(kind)
+  await page.getByRole('button',{name:'Đóng sửa mặt hàng',exact:true}).click()
+ }
 })

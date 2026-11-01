@@ -14,7 +14,7 @@ export type Database = {
       pos_categories: Table<{ name: string; created_at: string }, { name: string }>
       pos_products: Table<{
         id: string; name: string; category: string; tag: string | null; product_type: string | null;
-        is_imported: boolean | null; price: number; cost_price: number | null; stock: number | null; barcode: string | null;
+        image_url: string | null; is_imported: boolean | null; price: number; cost_price: number | null; stock: number | null; barcode: string | null;
       }>
     }
     Views: { [_ in never]: never }

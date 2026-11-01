@@ -29,9 +29,14 @@ export function metricLabel(value: number, metric: 'count' | 'revenue' | 'averag
 
 export const FALLBACK_CATEGORY = 'Chưa phân loại'
 
-type StockProduct = { id?: string; name?: string; is_imported?: boolean | null; stock?: number; costPrice?: number; cost_price?: number; price?: number }
+type StockProduct = { id?: string; name?: string; is_imported?: boolean | null; productType?: string; product_type?:string; stock?: number; costPrice?: number; cost_price?: number; price?: number }
 
 // is_imported is authoritative: neither category labels nor zero stock imply a product type.
+export function normalizedProductKind(kind:unknown, imported:unknown) {
+  const productType = kind==='ingredient'?'ingredient':kind==='processed'?'processed':kind==='retail'?'retail':imported===true?'retail':'processed'
+  return {productType,is_imported:productType!=='processed'} as const
+}
+export function isIngredient(product: StockProduct) { return (product.productType ?? product.product_type) === 'ingredient' }
 export function isRetail(product: StockProduct) { return product.is_imported === true }
 export function isLowStock(product: StockProduct) { return isRetail(product) && (product.stock ?? 0) <= 5 }
 export function movingAverageCost(stock: number, cost: number, quantity: number, total: number) {
@@ -48,6 +53,7 @@ export function stockProblem(lines: { id: string; quantity: number }[], products
   for (const [id, quantity] of quantities) {
     const product = products.find((item) => item.id === id)
     if (!product) return 'Một mặt hàng trong giỏ đã bị xóa. Hãy bỏ mặt hàng đó khỏi giỏ.'
+    if (isIngredient(product)) return `${product.name}: nguyên liệu không được bán trên POS.`
     if (isRetail(product) && quantity > Math.max(0, product.stock ?? 0)) return `${product.name}: chỉ còn ${Math.max(0, product.stock ?? 0)} sản phẩm trong kho.`
   }
   return null

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Check, Minus, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { matchesProduct, receiptCost, movingAverageCost, isLowStock, isRetail } from '@/lib/catalog'
+import { matchesProduct, receiptCost, movingAverageCost, isLowStock, isRetail, isIngredient } from '@/lib/catalog'
 import type { Product } from '@/lib/product'
 import { useBarcodeScanner } from '@/lib/hooks/use-barcode-scanner'
 import { CameraScanner, ScanButton } from './barcode-scanner'
@@ -13,6 +13,9 @@ import StocktakeEditor from './stocktake-editor'
 import { useStockChecks } from '@/lib/hooks/use-stock-checks'
 import {MAX_QUANTITY,formatNumber} from '@/lib/stocktake'
 import MoneyInput from './money-input'
+import ProductImageEditor from './product-image-editor'
+import ProductPhoto from './product-photo'
+import {productImageSource} from '@/lib/product-images'
 import StockImportHistory from './stock-import-history'
 import { useStockImports, type StockImport } from '@/lib/hooks/use-stock-imports'
 
@@ -75,8 +78,9 @@ export default function InventoryManager({ products, onChange, categories, onCre
     if (!editing?.name.trim() || !editing.category) throw new Error('Vui lòng nhập tên và chọn nhóm hàng.')
     if (![editing.price, editing.costPrice ?? 0].every((value) => Number.isFinite(value) && value >= 0)) throw new Error('Giá bán và giá vốn phải là số không âm.')
     if (editing.barcode && products.some((product) => product.id !== editing.id && product.barcode === editing.barcode?.trim())) throw new Error('Mã này đã thuộc về sản phẩm khác.')
+    if (editing.imageUrl?.trim() && !productImageSource(editing.imageUrl)) throw new Error('URL ảnh phải là HTTP/HTTPS hoặc ảnh nén hợp lệ.')
     const next = { ...editing, id: editing.id || crypto.randomUUID(), name: editing.name.trim(), barcode: editing.barcode?.trim() ?? '', tag: editing.category }
-    const payload = { id: next.id, name: next.name, price: next.price, category: next.category, tag: next.category, product_type: next.is_imported === true ? 'retail' : 'fnb', is_imported: next.is_imported === true, barcode: next.barcode || null, cost_price: next.costPrice ?? 0, stock: next.stock ?? 0 }
+    const payload = { id: next.id, name: next.name, image_url: next.imageUrl?.trim() || null, price: isIngredient(next) ? 0 : next.price, category: next.category, tag: next.category, product_type: isIngredient(next) ? 'ingredient' : isRetail(next) ? 'retail' : 'processed', is_imported: next.is_imported === true, barcode: next.barcode || null, cost_price: next.costPrice ?? 0, stock: next.stock ?? 0 }
     const { stock: _stock, cost_price: _cost, ...metadata } = payload
     const costChanged = editing.id && editOriginal.current?.costPrice !== next.costPrice
     let request = db.from('pos_products').update(costChanged ? { ...metadata, cost_price: next.costPrice ?? 0 } : metadata).eq('id', next.id)
@@ -146,7 +150,7 @@ export default function InventoryManager({ products, onChange, categories, onCre
 function ProductRow({ product, onStock, onEdit, disabled }: { product: Product; onStock: (product: Product, stock: number) => void; onEdit: (product: Product) => void; disabled: boolean }) {
   const prep = !isRetail(product)
   return <article data-testid="inventory-card" className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm md:grid-cols-[minmax(0,1fr)_90px_90px_150px_40px] md:gap-4 md:rounded-none md:border-0 md:border-b md:shadow-none dark:bg-[#1C1714]">
-    <div className="col-span-2 min-w-0 md:col-span-1"><p className="break-words font-semibold text-stone-900 dark:text-stone-100">{product.name}</p><div className="mt-1 flex flex-wrap gap-2 text-xs"><span className="max-w-full break-words rounded-full bg-stone-100 px-2 py-0.5 text-stone-500">{product.category || 'Khác'}</span>{prep && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">Pha chế / Nấu mới</span>}</div>{product.barcode && <p className="mt-1 break-all text-xs text-stone-400">{product.barcode}</p>}</div>
+    <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex min-w-0 items-center gap-2">{product.imageUrl&&<ProductPhoto src={product.imageUrl} alt={`Ảnh ${product.name}`} className="size-9 shrink-0 rounded-lg object-cover"/>}<p className="min-w-0 break-words font-semibold text-stone-900 dark:text-stone-100">{product.name}</p></div><div className="mt-1 flex flex-wrap gap-2 text-xs"><span className="max-w-full break-words rounded-full bg-stone-100 px-2 py-0.5 text-stone-500">{product.category || 'Khác'}</span>{isIngredient(product)&&<span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-700">Nguyên liệu</span>}{prep && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">Pha chế / Nấu mới</span>}</div>{product.barcode && <p className="mt-1 break-all text-xs text-stone-400">{product.barcode}</p>}</div>
     <div className="col-span-2 min-w-0 md:col-span-1"><span className="mr-2 text-xs text-stone-500 md:hidden">Giá vốn</span><span data-testid="inventory-cost">{isRetail(product) || (product.costPrice ?? 0) > 0 ? money(product.costPrice ?? 0) : '—'}</span></div>
     <div className="col-span-2 min-w-0 font-semibold text-amber-700 md:col-span-1"><span className="mr-2 text-xs font-normal text-stone-500 md:hidden">Giá bán</span><span>{money(product.price)}</span></div>
     <div className="flex min-w-0 flex-wrap items-center gap-2"><div className="flex items-center rounded-lg border border-stone-200"><button disabled={disabled || !product.stock} type="button" aria-label={`Giảm tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) - 1)} className="p-2.5 text-stone-500 disabled:opacity-40"><Minus className="size-3" /></button><span aria-label={`Tồn kho ${product.name}`} className="min-w-10 border-x px-2 text-center text-sm font-semibold">{formatNumber(product.stock ?? 0)}</span><button disabled={disabled} type="button" aria-label={`Tăng tồn ${product.name}`} onClick={() => onStock(product, (product.stock ?? 0) + 1)} className="p-2.5 text-stone-500"><Plus className="size-3" /></button></div><span className={`text-xs ${prep ? 'text-emerald-600' : (product.stock ?? 0) <= 5 ? 'text-red-600' : 'text-stone-500'}`}>{prep ? 'Đang chế biến' : `Còn ${formatNumber(product.stock ?? 0)}`}</span></div>
@@ -180,15 +184,17 @@ function Receiving({ products, categories, selected, setSelected, qty, setQty, t
 }
 
 function EditModal({ product, setProduct, categories, onSave, onDelete, onClose, saving, onCamera, failure }: { product: Product; setProduct: (product: Product) => void; categories: string[]; onSave: () => void; onDelete: () => void; onClose: () => void; saving: boolean; onCamera: () => void; failure: string }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}><form role="dialog" aria-modal="true" aria-labelledby="edit-product-title" onSubmit={(event) => { event.preventDefault(); onSave() }} className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-[#1C1714]" onClick={(event) => event.stopPropagation()}>
-    <div className="mb-4 flex items-center justify-between"><h2 id="edit-product-title" className="text-lg font-bold">{product.id ? 'Sửa mặt hàng' : 'Thêm mặt hàng'}</h2><button type="button" disabled={saving} onClick={onClose} aria-label="Đóng sửa mặt hàng"><X /></button></div>
-    <fieldset disabled={saving} className="space-y-3">
+  const [imageBusy,setImageBusy]=useState(false)
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={()=>{if(!imageBusy&&!saving)onClose()}}><form role="dialog" aria-modal="true" aria-labelledby="edit-product-title" onSubmit={(event) => { event.preventDefault(); if(!imageBusy)onSave() }} className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-[#1C1714]" onClick={(event) => event.stopPropagation()}>
+    <div className="mb-4 flex items-center justify-between"><h2 id="edit-product-title" className="text-lg font-bold">{product.id ? 'Sửa mặt hàng' : 'Thêm mặt hàng'}</h2><button type="button" disabled={saving||imageBusy} onClick={onClose} aria-label="Đóng sửa mặt hàng"><X /></button></div>
+    <fieldset disabled={saving||imageBusy} className="space-y-3">
       <label className="block text-sm">Tên mặt hàng<input required value={product.name} onChange={(event) => setProduct({ ...product, name: event.target.value })} className={`${inputClass} mt-1`} /></label>
       <label className="block text-sm">Nhóm hàng<select aria-label="Nhóm hàng" value={product.category} required onChange={(event) => setProduct({ ...product, category: event.target.value })} className={`${inputClass} mt-1`}><option value="">Chọn nhóm</option>{categories.map((name) => <option key={name}>{name}</option>)}</select></label>
       <label className="block text-sm">Barcode / QR<div className="mt-1 flex min-w-0 gap-2"><input aria-label="Mã sản phẩm" value={product.barcode ?? ''} onChange={(event) => setProduct({ ...product, barcode: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault() }} className={inputClass} /><ScanButton onClick={onCamera} /></div></label>
-      <label className="block text-sm">Giá bán<MoneyInput required value={product.price} onChange={(price) => setProduct({ ...product, price })} className={`${inputClass} mt-1`} /></label>
+      <label className="block text-sm">Giá bán<MoneyInput required disabled={isIngredient(product)} value={isIngredient(product)?0:product.price} onChange={(price) => setProduct({ ...product, price })} className={`${inputClass} mt-1`} /></label>
       <label className="block text-sm">Giá vốn<MoneyInput required value={product.costPrice ?? 0} onChange={(costPrice) => setProduct({ ...product, costPrice })} className={`${inputClass} mt-1`} /></label>
-      <label className="block text-sm">Loại mặt hàng<select aria-label="Loại mặt hàng" value={isRetail(product) ? 'retail' : 'fnb'} onChange={(event) => setProduct({ ...product, productType: event.target.value as Product['productType'], is_imported: event.target.value === 'retail' })} className={`${inputClass} mt-1`}><option value="retail">Hàng bán lẻ</option><option value="fnb">Đồ chế biến</option></select></label>
+      <label className="block text-sm">Loại mặt hàng<select aria-label="Loại mặt hàng" value={isIngredient(product)?'ingredient':isRetail(product)?'retail':'processed'} onChange={(event) => setProduct({ ...product, productType: event.target.value as Product['productType'], is_imported: event.target.value !== 'processed', price:event.target.value==='ingredient'?0:product.price })} className={`${inputClass} mt-1`}><option value="retail">Hàng bán lẻ</option><option value="processed">Đồ chế biến</option><option value="ingredient">Nguyên liệu</option></select></label>
+      <ProductImageEditor value={product.imageUrl??''} onChange={(imageUrl)=>setProduct({...product,imageUrl})} onBusy={setImageBusy}/>
       {failure && <p role="alert" className="break-words text-sm text-red-600">{failure}</p>}
       <div className="flex justify-between gap-2">{product.id && <button type="button" onClick={onDelete} className="flex items-center gap-1 text-sm text-red-600"><Trash2 className="size-4" /> Xóa món</button>}<button type="submit" className="ml-auto flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-2 text-sm text-white"><Check className="size-4" />{saving ? 'Đang lưu...' : 'Lưu'}</button></div>
     </fieldset>

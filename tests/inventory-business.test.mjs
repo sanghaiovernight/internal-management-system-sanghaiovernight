@@ -16,7 +16,7 @@ before(async () => {
     grant select,insert,delete on public.pos_expenses to anon;
     grant select,insert on public.pos_transactions to anon;
   `)
-  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql','202611010005_short_import_numbers.sql','202611010006_stocktake_sheets.sql']) {
+  for (const file of ['202610310001_catalog_and_receiving.sql', '202611010001_inventory_business_rules.sql','202611010002_receipts_and_printing.sql','202611010003_checkout_jsonb_and_bank.sql','202611010004_short_receipts_returns_activity.sql','202611010005_short_import_numbers.sql','202611010006_stocktake_sheets.sql','202611010007_ingredients_and_images.sql']) {
     const sql = await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
     await db.exec(sql)
     await db.exec(sql) // Idempotent setup and existing-table upgrade.
@@ -145,12 +145,14 @@ test('delete category atomically moves products to default and removes registry 
   await assert.rejects(db.query("select public.pos_delete_category('Chưa phân loại')"),/nhóm mặc định/)
 })
 
-test('explicit is_imported overrides a conflicting legacy product_type', async () => {
+test('canonical product kinds normalize inventory flags while legacy fnb respects its flag', async () => {
   const retail = await product(0,6000,true)
   const prep = await product(0,0,false)
   await db.query("update public.pos_products set product_type='fnb' where id=$1",[retail])
   await db.query("update public.pos_products set product_type='retail' where id=$1",[prep])
   await assert.rejects(checkout([[retail,1]]),/không đủ tồn kho/)
+  await assert.rejects(checkout([[prep,1]]),/không đủ tồn kho/)
+  await db.query("update public.pos_products set product_type='processed' where id=$1",[prep])
   await checkout([[prep,1]])
 })
 test('v2 receiving rolls back all changes when expense insertion is denied', async () => {
@@ -391,7 +393,8 @@ test('stocktake detects concurrent stock, price and type changes and rolls back 
  for(const field of ['stock','cost_price','is_imported']) {
   const a=await product(10,6000),b=await product(10,6000),request=randomUUID()
   const lines=await Promise.all([checkLine(a,8),checkLine(b,15,9000)])
-  await db.query(`update public.pos_products set ${field}=$1 where id=$2`,[field==='is_imported'?false:7000,b])
+  if(field==='is_imported')await db.query("update public.pos_products set product_type='processed' where id=$1",[b])
+  else await db.query(`update public.pos_products set ${field}=$1 where id=$2`,[7000,b])
   await assert.rejects(stockCheck(lines,request),/đã thay đổi/)
   assert.equal((await read(a)).stock,10)
   assert.equal((await db.query('select count(*)::int n from public.pos_stock_checks where id=$1',[request])).rows[0].n,0)
@@ -436,4 +439,25 @@ test('stocktake header permission failure cannot change products or append journ
   assert.equal((await read(id)).stock,10);assert.equal((await read(id)).cost_price,6000)
   assert.equal((await db.query('select count(*)::int n from public.pos_inventory_events where check_id=$1',[request])).rows[0].n,0)
  } finally {await db.exec('reset role; grant insert on public.pos_stock_checks to anon; set role anon')}
+})
+
+
+test('ingredients normalize to tracked zero-price stock, import with MAC, check, and reverse correctly',async()=>{
+ const id=await product(10,6000)
+ await db.query("update public.pos_products set product_type='ingredient',is_imported=false,price=99000,image_url='https://example.com/ingredient.webp' where id=$1",[id])
+ const row=(await db.query('select product_type,is_imported,price,image_url from public.pos_products where id=$1',[id])).rows[0]
+ assert.equal(row.product_type,'ingredient');assert.equal(row.is_imported,true);assert.equal(Number(row.price),0);assert.equal(row.image_url,'https://example.com/ingredient.webp')
+ const receipt=await receive(id,5,45000);assert.equal((await read(id)).cost_price,7000);assert.equal((await read(id)).stock,15)
+ await stockCheck([await checkLine(id,20,9000)]);assert.equal((await read(id)).cost_price,7500)
+ await stockCheck([await checkLine(id,18)]);assert.equal((await read(id)).cost_price,7500)
+ await voidImport(receipt.receipt.id);assert.equal((await read(id)).stock,18)
+})
+test('ingredient checkout is rejected by the database, rolling back other products, orders and inventory journal',async()=>{
+ const retail=await product(8,6000),ingredient=await product(5,4000)
+ await db.query("update public.pos_products set product_type='ingredient' where id=$1",[ingredient])
+ const request=randomUUID()
+ await assert.rejects(newOrder([[retail,1],[ingredient,1]],0,request),/nguyên liệu không được bán/)
+ assert.equal((await read(retail)).stock,8);assert.equal((await read(ingredient)).stock,5)
+ assert.equal((await db.query('select count(*)::int n from public.pos_orders where id=$1',[request])).rows[0].n,0)
+ await assert.rejects(checkout([[ingredient,1]]),/nguyên liệu không được bán/)
 })

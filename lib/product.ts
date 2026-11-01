@@ -3,7 +3,7 @@ export type Product = {
   name: string
   category: string
   is_imported?: boolean | null
-  productType?: 'retail' | 'fnb' | 'ingredient'
+  productType?: 'retail' | 'processed' | 'ingredient'
   price: number
   cost?: number
   costPrice?: number

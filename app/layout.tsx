@@ -2,7 +2,6 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ThemeProvider from '@/components/theme-provider'
-import {themeBootstrap} from '@/lib/theme'
 import PwaRegistration from '@/components/pwa-registration'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 
@@ -32,7 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" suppressHydrationWarning>
-      <head><script dangerouslySetInnerHTML={{__html:themeBootstrap}}/></head>
+      <head />
       <body className="antialiased">
         <ThemeProvider><ConfirmProvider>{children}</ConfirmProvider></ThemeProvider>
         <PwaRegistration/>

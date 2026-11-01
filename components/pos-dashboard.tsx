@@ -15,6 +15,7 @@ import ReceiptPrinter, { type ReceiptPrinterHandle } from './receipt-printer'
 import { useReceiptSettings, useOrders } from '@/lib/hooks/use-receipts'
 import { normalizeOrder } from '@/lib/receipts'
 
+import SessionLock from './session-lock'
 import ProductPhoto from './product-photo'
 import { isRetail, isIngredient, normalizedProductKind, stockProblem, FALLBACK_CATEGORY } from '@/lib/catalog'
 import type { Product } from '@/lib/product'
@@ -265,8 +266,9 @@ export function PosDashboard() {
       </header>
 
       <div className="mx-auto max-w-[1500px] px-5 py-5 lg:px-8">
-        <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-[#e9edef] bg-white dark:bg-[#1C1714] dark:border-stone-800 p-1.5 shadow-sm md:w-fit">
+        <nav className="mb-6 flex w-full flex-wrap gap-1 rounded-xl border border-[#e9edef] bg-white dark:bg-[#1C1714] dark:border-stone-800 p-1.5 shadow-sm">
           {([['pos', 'POS', CreditCard], ['inventory', 'Kho hàng', Package], ['reports', 'Báo cáo', BarChart3], ['invoices', 'Hóa đơn & Mẫu in', ReceiptText], ['activity', 'Nhật ký hoạt động', ReceiptText]] as const).map(([key, label, Icon]) => <button key={key} onClick={() => setActiveTab(key)} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${activeTab === key ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-sm' : 'text-[#7b858e] hover:bg-[#f3f6f5] dark:hover:border-amber-500/50'}`}><Icon />{label}</button>)}
+          <SessionLock disabled={paying}/>
         </nav>
 
         {productsError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">Không tải được sản phẩm từ Supabase. Kiểm tra kết nối và quyền truy cập, rồi thử lại.</p>}

@@ -1,12 +1,17 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import PwaRegistration from '@/components/pwa-registration'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 
 export const metadata: Metadata = {
   title: 'Sangha.POS · Convenience & F&B',
   description: 'Hệ thống quản lý bán hàng cho cửa hàng tiện lợi và F&B.',
-  generator: 'v0.app',
+  applicationName:'Sanghai Overnight POS',
+  manifest:'/manifest.webmanifest',
+  appleWebApp:{capable:true,statusBarStyle:'default',title:'Sanghai POS'},
+  formatDetection:{telephone:false},
+  other:{'apple-mobile-web-app-capable':'yes'},
   icons: {
     icon: [
       {
@@ -22,16 +27,13 @@ export const metadata: Metadata = {
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icons/apple-touch-icon.png',
   },
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  width:'device-width',initialScale:1,maximumScale:1,userScalable:false,viewportFit:'cover',
+  colorScheme:'light dark',themeColor:'#d97706',
 }
 
 export default function RootLayout({
@@ -43,6 +45,7 @@ export default function RootLayout({
     <html lang="vi">
       <body className="antialiased">
         <ConfirmProvider>{children}</ConfirmProvider>
+        <PwaRegistration/>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

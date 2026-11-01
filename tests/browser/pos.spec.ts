@@ -140,6 +140,8 @@ async function fixture(page: Page, options: { failStorage?:boolean; extraCategor
     }
     await route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
   })
+  const login=await page.request.post('/api/auth/login',{data:{pin:'83917264'}})
+  expect(login.ok()).toBe(true)
   await page.goto('/')
   await expect(page.getByRole('button', { name: new RegExp(initialProduct.name) }).first()).toBeVisible()
   return { receipts, payments, requests, results,checkRequests,productWrites,uploaded }

@@ -168,8 +168,10 @@
 .receipt-center { text-align: center; }
 .receipt-store { font-size: 17px; font-weight: 700; }
 .receipt-rule { border-top: 1px dashed #000; margin-top: 8px; padding-top: 8px; }
-.receipt-pair { display: flex; justify-content: space-between; gap: 5px; }
-.receipt-total { font-size: 14px; font-weight: 700; }
+.receipt-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 5px; font-size: 11px; }
+.receipt-pair > span { text-align: left; }
+.receipt-pair > b { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.receipt-total { font-weight: 700; }
 .receipt-lines { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
 .receipt-lines th, .receipt-lines td { padding: 4px 1px; vertical-align: top; overflow-wrap: anywhere; text-align: right; }
 .receipt-lines th:first-child, .receipt-lines td:first-child { text-align: left; }

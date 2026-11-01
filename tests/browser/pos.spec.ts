@@ -821,6 +821,12 @@ for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, b
   for(const selector of ['.receipt-store','h3','.receipt-lines th','.receipt-pair']){
    expect(await receipt.locator(selector).evaluateAll(elements=>elements.length>0&&elements.every(el=>Number(getComputedStyle(el).fontWeight)>=700))).toBe(true)
   }
+  const summary=await receipt.locator('.receipt-pair').evaluateAll(rows=>rows.map(row=>{
+   const label=row.querySelector('span')!,amount=row.querySelector('b')!,box=row.getBoundingClientRect()
+   return {size:getComputedStyle(row).fontSize,labelLeft:Math.abs(label.getBoundingClientRect().left-box.left)<1,amountRight:Math.abs(amount.getBoundingClientRect().right-box.right)<1}
+  }))
+  expect(summary.length).toBe(5)
+  expect(summary.every(row=>row.size==='11px'&&row.labelLeft&&row.amountRight)).toBe(true)
   const borders=await receipt.locator('thead').evaluate(el=>{const s=getComputedStyle(el);return [s.borderTopStyle,s.borderBottomStyle,s.borderTopWidth,s.borderBottomWidth,s.borderTopColor,s.borderBottomColor]})
   expect(borders).toEqual(['solid','solid','1px','1px','rgb(0, 0, 0)','rgb(0, 0, 0)'])
   const frame=receipt.locator('.receipt-qr-frame')
@@ -830,6 +836,7 @@ for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, b
   expect(await receipt.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  }
  await checkDesign(preview)
+ await preview.screenshot({path:test.info().outputPath(`receipt-preview-k${width}.png`)})
  await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/-qr_only.png\?amount=65000/)
  await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()

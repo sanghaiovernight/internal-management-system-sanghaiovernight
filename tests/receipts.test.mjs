@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {receiptSettings,receiptItems,normalizeOrder,filterOrders,vietnamDay,bankQr,parseVietnamDate,receiptQrUrl} from '../lib/receipts.ts'
 test('receipt defaults sanitize paper/booleans and preserve user text without interpreting HTML',()=>{
  const s=receiptSettings({paper_width:58,auto_print:true,store_name:'<script>text</script>'})
- assert.equal(s.paper_width,58);assert.equal(s.auto_print,true);assert.equal(s.store_name,'<script>text</script>')
+ assert.equal(s.paper_width,80);assert.equal(s.auto_print,true);assert.equal(s.store_name,'<script>text</script>')
  assert.equal(receiptSettings({paper_width:99,auto_print:'true'}).paper_width,80)
  assert.equal(receiptSettings({auto_print:'true'}).auto_print,false)
 })

@@ -1,9 +1,9 @@
 'use client'
 
-import { receiptQrUrl, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
+import { RECEIPT_PAPER_WIDTH, receiptQrUrl, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
 const money = (value: number) => value.toLocaleString('vi-VN')
 export default function ThermalReceipt({ order, settings }: { order: ReceiptOrder; settings: ReceiptSettings }) {
-  return <article className="thermal-receipt" style={{width:`${settings.paper_width}mm`}} aria-label={`Hóa đơn ${order.receipt_no}`}>
+  return <article className="thermal-receipt" style={{width:`${RECEIPT_PAPER_WIDTH}mm`}} aria-label={`Hóa đơn ${order.receipt_no}`}>
     <header className="receipt-center"><h2 className="receipt-store font-bold">{settings.store_name}</h2>{settings.subtitle && <p>{settings.subtitle}</p>}{settings.address && <p>{settings.address}</p>}{settings.phone && <p>ĐT: {settings.phone}</p>}</header>
     <div className="receipt-rule receipt-center"><h3 className="font-bold">HÓA ĐƠN BÁN HÀNG</h3>{order.status==='voided'&&<p>ĐÃ HỦY</p>}{order.status==='refunded'&&<p>ĐÃ HOÀN TRẢ MỘT PHẦN / TOÀN BỘ</p>}<p>Mã bill: {order.receipt_no}</p><p>{new Date(order.created_at).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}</p><p>{order.payment_method}</p></div>
     <table className="receipt-lines"><colgroup><col style={{width:'40%'}}/><col style={{width:'10%'}}/><col style={{width:'23%'}}/><col style={{width:'27%'}}/></colgroup><thead className="font-bold"><tr><th className="font-bold">Tên món</th><th className="font-bold">SL</th><th className="font-bold">Đơn giá</th><th className="font-bold">Thành tiền</th></tr></thead><tbody>{order.items.map((item,index)=><tr key={`${item.id}-${index}`}><td>{item.name}{item.note && <small className="block">({item.note})</small>}</td><td>{item.quantity}</td><td>{item.price == null ? '—' : money(item.price)}</td><td>{item.price == null ? '—' : money(item.price*item.quantity)}</td></tr>)}</tbody></table>

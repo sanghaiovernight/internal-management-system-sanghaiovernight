@@ -1,3 +1,4 @@
+export const RECEIPT_PAPER_WIDTH = 80
 export type ReceiptSettings = {
   store_name: string; subtitle: string; address: string; phone: string; wifi_name: string; wifi_password: string;
   bank_name: string; bank_account: string; bank_owner: string;
@@ -11,7 +12,7 @@ export function receiptSettings(value: unknown): ReceiptSettings {
   const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
   const result = { ...DEFAULT_RECEIPT_SETTINGS }
   for (const key of ['store_name','subtitle','address','phone','wifi_name','wifi_password','footer','bank_name','bank_account','bank_owner'] as const) if (typeof v[key] === 'string') result[key] = (v[key] as string).slice(0,500)
-  result.paper_width = v.paper_width === 58 ? 58 : 80
+  result.paper_width = RECEIPT_PAPER_WIDTH
   result.show_qr = v.show_qr === true; result.auto_print = v.auto_print === true
   return result
 }

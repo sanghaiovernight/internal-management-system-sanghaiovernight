@@ -5,13 +5,13 @@ import {bankQr,receiptSettings} from '../../lib/receipts'
 const barcode = '0012345678901'
 const initialProduct = { id: 'test-product', name: 'Sản phẩm thử nghiệm có tên rất dài để kiểm tra bố cục trên điện thoại', category: 'Đồ đóng gói', tag: 'Đồ đóng gói', price: 35000, cost_price: 20000, stock: 8, barcode, product_type: 'retail', is_imported: true }
 
-async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; legacyQr?:boolean; secondProduct?:boolean } = {}) {
+async function fixture(page: Page, options: { failReceive?: boolean; failCategory?: boolean; stock?: number; retail?: boolean; cartQuantity?: number; failCheckout?: boolean; failVoid?: boolean; historyOffline?: boolean; settingsOffline?: boolean; autoPrint?: boolean; rawHistory?: boolean; legacyLog?:boolean; failAdjust?: boolean; failCheck?:boolean; paperWidth?:58|80; legacyQr?:boolean; secondProduct?:boolean } = {}) {
   let product = { ...initialProduct, stock: options.stock ?? 8, is_imported: options.retail ?? true }
   let extra=options.secondProduct?{...initialProduct,id:'second-product',name:'Bạc xỉu',stock:0,is_imported:false}:null
   const checks:any[]=[]
   const checkRequests:any[]=[]
   const categories = [{ name: 'Đồ đóng gói' }]
-  let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:80,auto_print:options.autoPrint??false,show_qr:false }
+  let template:any = { id:'default',store_name:'SangHai Overnight',paper_width:options.paperWidth??80,auto_print:options.autoPrint??false,show_qr:false }
   let orders:any[] = []
   let imports: Record<string, any>[] = []
   const receipts: Record<string, unknown>[] = []
@@ -477,16 +477,16 @@ test('custom confirmation supports cancel, Escape, backdrop, focus and performs 
  await expect(page.getByRole('dialog',{name:'Sửa mặt hàng'})).toBeVisible()
 })
 
-test('designer updates live K58 receipt, saves template, and prints only the receipt area',async({page})=>{
+test('designer updates fixed K80 receipt, saves template, and prints only the receipt area',async({page})=>{
  await printSpy(page);await fixture(page);await designer(page)
  await page.getByLabel('Tên cửa hàng',{exact:true}).fill('Quán in thử')
  await page.getByLabel('Địa chỉ',{exact:true}).fill('123 Đường thử')
  await page.getByLabel('Tên Wifi',{exact:true}).fill('Wifi thử')
  await page.getByLabel('Mật khẩu Wifi',{exact:true}).fill('test-pass')
- await page.getByLabel('Khổ giấy',{exact:true}).selectOption('58')
+ await expect(page.getByLabel('Khổ giấy',{exact:true})).toHaveCount(0)
  const preview=page.getByLabel('Xem trước mẫu hóa đơn')
  await expect(preview).toContainText('Quán in thử');await expect(preview).toContainText('123 Đường thử');await expect(preview).toContainText('test-pass')
- await expect(preview.locator('article')).toHaveAttribute('style',/58mm/)
+ await expect(preview.locator('article')).toHaveAttribute('style',/80mm/)
  await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()
  await page.getByRole('button',{name:'In thử mẫu này',exact:true}).click()
@@ -801,16 +801,16 @@ test('stocktake formatted bounded inputs and fixed footer fit narrow mobile scre
  }
 })
 
-for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
+for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${width} settings and shares Arial fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
  await printSpy(page)
- const {results}=await fixture(page,{legacyQr:true})
+ const {results}=await fixture(page,{legacyQr:true,paperWidth:width as 58|80})
  const qrRequests:string[]=[]
  await page.route('https://img.vietqr.io/image/**',async route=>{
   qrRequests.push(route.request().url())
   await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="490" height="490"><rect width="490" height="490" fill="white"/><rect x="40" y="40" width="410" height="410" fill="black"/></svg>'})
  })
  await designer(page)
- await page.getByLabel('Khổ giấy',{exact:true}).selectOption(String(width))
+ await expect(page.getByLabel('Khổ giấy',{exact:true})).toHaveCount(0)
  await page.getByLabel('Tên Ngân hàng (Mã viết tắt, VD: MB, VCB)',{exact:true}).fill('MB')
  await page.getByLabel('Số tài khoản',{exact:true}).fill('00123456')
  await page.getByLabel('Tên chủ tài khoản',{exact:true}).fill('TEST OWNER')
@@ -837,6 +837,7 @@ for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, b
   expect(await receipt.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  }
  await checkDesign(preview)
+ await expect(preview).toHaveAttribute('style',/80mm/)
  await preview.screenshot({path:test.info().outputPath(`receipt-preview-k${width}.png`)})
  await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/-qr_only.png\?amount=65000/)
  await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
@@ -860,6 +861,7 @@ for(const width of [58,80])test(`thermal receipt K${width} shares Arial fonts, b
  expect(qr.pathname).toBe('/image/MB-00123456-qr_only.png')
  expect(qr.searchParams.get('amount')).toBe('35000');expect(qr.searchParams.get('addInfo')).toBe(results[0].receipt_no)
  expect(qrRequests.every(url=>url.includes('-qr_only.png'))).toBe(true)
- expect(await printed.getAttribute('style')).toContain(`${width}mm`)
+ expect(await printed.getAttribute('style')).toContain('80mm')
+ expect(await page.locator('#receipt-print-area style').textContent()).toContain('size: 80mm auto')
  await page.emulateMedia({media:'screen'})
 })

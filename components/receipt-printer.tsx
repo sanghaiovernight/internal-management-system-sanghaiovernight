@@ -2,7 +2,7 @@
 
 import { forwardRef, useImperativeHandle, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import type { ReceiptOrder, ReceiptSettings } from '@/lib/receipts'
+import { RECEIPT_PAPER_WIDTH, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
 import ThermalReceipt from './thermal-receipt'
 export type ReceiptPrinterHandle = { print: (order: ReceiptOrder, settings: ReceiptSettings) => Promise<void> }
 const ReceiptPrinter = forwardRef<ReceiptPrinterHandle>(function ReceiptPrinter(_,ref) {
@@ -17,6 +17,6 @@ const ReceiptPrinter = forwardRef<ReceiptPrinterHandle>(function ReceiptPrinter(
     await new Promise<void>((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))
     window.print()
   }}),[])
-  return job && createPortal(<div id="receipt-print-area"><style>{`@media print { @page { margin: 0; size: ${job.settings.paper_width}mm auto; } }`}</style><ThermalReceipt order={job.order} settings={job.settings}/></div>,document.body)
+  return job && createPortal(<div id="receipt-print-area"><style>{`@media print { @page { margin: 0; size: ${RECEIPT_PAPER_WIDTH}mm auto; } }`}</style><ThermalReceipt order={job.order} settings={job.settings}/></div>,document.body)
 })
 export default ReceiptPrinter

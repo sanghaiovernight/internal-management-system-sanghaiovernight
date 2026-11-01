@@ -38,3 +38,22 @@ test('same-origin checks work behind a hostname-normalizing proxy and reject oth
  request.headers.set('origin','null');assert.equal(sameOriginRequest(request),false)
  request.headers.delete('origin');request.headers.set('sec-fetch-site','cross-site');assert.equal(sameOriginRequest(request),false)
 })
+
+test('Vercel forwarded public host is used instead of the internal server host',async()=>{
+ const {sameOriginRequest}=await import('../lib/request-origin.ts')
+ const request={url:'http://localhost:3000/api/auth/login',headers:new Headers({host:'internal.vercel.local',origin:'https://pos.shop.example','x-forwarded-host':'pos.shop.example','x-forwarded-proto':'https'})}
+ assert.equal(sameOriginRequest(request),true)
+ request.headers.set('x-forwarded-host','pos.shop.example, internal.vercel.local');assert.equal(sameOriginRequest(request),true)
+ request.headers.set('origin','https://untrusted.example');assert.equal(sameOriginRequest(request),false)
+ request.headers.set('origin','http://pos.shop.example');assert.equal(sameOriginRequest(request),false)
+ request.headers.set('origin','https://pos.shop.example');request.headers.set('sec-fetch-site','cross-site');assert.equal(sameOriginRequest(request),false)
+})
+test('browser same-origin metadata survives proxy rewrites without allowing cross-site or opaque requests',async()=>{
+ const {sameOriginRequest}=await import('../lib/request-origin.ts')
+ const request={url:'http://localhost/api/auth/login',headers:new Headers({host:'localhost',origin:'https://pos.shop.example','sec-fetch-site':'same-origin'})}
+ assert.equal(sameOriginRequest(request),true)
+ request.headers.set('sec-fetch-site','same-site');assert.equal(sameOriginRequest(request),false)
+ request.headers.set('sec-fetch-site','cross-site');assert.equal(sameOriginRequest(request),false)
+ request.headers.set('sec-fetch-site','same-origin');request.headers.set('origin','null');assert.equal(sameOriginRequest(request),false)
+ request.headers.set('origin','https://pos.shop.example/path');assert.equal(sameOriginRequest(request),false)
+})

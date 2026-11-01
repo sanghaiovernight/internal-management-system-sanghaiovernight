@@ -71,3 +71,13 @@ test('service worker caches only icons and provides a safe offline reconnect scr
  await expect(page.getByRole('heading',{name:'Chưa có kết nối mạng'})).toBeVisible()
  await expect(page.getByText('Bán hàng',{exact:true})).toHaveCount(0)
 })
+
+test('login and logout accept trusted forwarded HTTPS host while rejecting cross-site requests',async({page})=>{
+ const headers={Origin:'https://pos.shop.example','X-Forwarded-Host':'pos.shop.example','X-Forwarded-Proto':'https'}
+ const response=await page.request.post('/api/auth/login',{headers,data:{pin:PIN}})
+ expect(response.status()).toBe(200)
+ expect((await page.request.get('/api/auth/session')).status()).toBe(200)
+ expect((await page.request.post('/api/auth/logout',{headers:{...headers,'Sec-Fetch-Site':'cross-site'}})).status()).toBe(403)
+ expect((await page.request.post('/api/auth/logout',{headers})).status()).toBe(200)
+ expect((await page.request.get('/api/auth/session')).status()).toBe(401)
+})

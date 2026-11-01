@@ -905,3 +905,38 @@ test('invoice date and search filters stack at full width on mobile and form two
  await searchFilter()
  async function searchFilter(){await page.getByRole('textbox',{name:'Tìm hóa đơn',exact:true}).fill('Món thử');await expect(page.getByText('Không có hóa đơn phù hợp.',{exact:true})).toBeVisible()}
 })
+
+test('revenue, TA and TC use day-month dates in bar/line axes and pie legends across month boundaries',async({page})=>{
+ await page.clock.setFixedTime(new Date('2026-11-01T05:00:00Z'))
+ await page.setViewportSize({width:1280,height:900})
+ await fixture(page)
+ await page.route('**/rest/v1/pos_transactions*',route=>route.fulfill({contentType:'application/json',body:JSON.stringify([
+  {code:'HD2610001',date_time:'2026-10-26T05:00:00Z',total:35000,method:'Tiền mặt',items:[{name:initialProduct.name,quantity:1,price:35000}]},
+  {code:'HD0111001',date_time:'2026-11-01T05:00:00Z',total:35000,method:'Tiền mặt',items:[{name:initialProduct.name,quantity:1,price:35000}]}
+ ])}))
+ await page.reload()
+ await page.getByRole('button',{name:'Báo cáo',exact:true}).click()
+ await page.getByRole('button',{name:'7 ngày qua',exact:true}).click()
+ await page.getByLabel('Thu gọn khoảng trống',{exact:true}).uncheck()
+ const chart=page.locator('section').filter({has:page.getByRole('heading',{name:'Biểu đồ 7 ngày qua',exact:true})})
+ for(const metric of [/Tổng doanh thu/,/TA · Trung bình bill/,/TC · Tổng lượt khách/]){
+  await page.getByRole('button',{name:metric}).click()
+  for(const kind of ['Biểu đồ cột','Biểu đồ đường','Biểu đồ tròn']){
+   await page.getByRole('button',{name:kind,exact:true}).click()
+   if(kind==='Biểu đồ tròn'){
+    await expect(chart.getByText('26-10',{exact:true})).toBeVisible()
+    await expect(chart.getByText('01-11',{exact:true})).toBeVisible()
+   }else{
+    await expect(chart.getByText('26-10',{exact:true})).toBeVisible()
+    await expect(chart.getByText('01-11',{exact:true})).toBeVisible()
+   }
+   await expect(chart.getByText('10-26',{exact:true})).toHaveCount(0)
+   await expect(chart.getByText('11-01',{exact:true})).toHaveCount(0)
+  }
+ }
+ await page.getByRole('button',{name:'Biểu đồ cột',exact:true}).click()
+ await page.getByRole('button',{name:'Tháng này',exact:true}).click()
+ await expect(page.locator('section').filter({has:page.getByRole('heading',{name:'Biểu đồ trong tháng',exact:true})}).getByText('01-11',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Hôm nay',exact:true}).click()
+ await expect(page.locator('section').filter({has:page.getByRole('heading',{name:'Biểu đồ theo giờ (Hôm nay)',exact:true})}).getByText('00h',{exact:true})).toBeVisible()
+})

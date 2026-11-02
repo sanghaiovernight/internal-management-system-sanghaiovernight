@@ -4,11 +4,13 @@ import { forwardRef, useImperativeHandle, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { RECEIPT_PAPER_WIDTH, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
 import ThermalReceipt from './thermal-receipt'
+import { plainReceiptQr } from '@/lib/plain-receipt-qr'
 export type ReceiptPrinterHandle = { print: (order: ReceiptOrder, settings: ReceiptSettings) => Promise<void> }
 const ReceiptPrinter = forwardRef<ReceiptPrinterHandle>(function ReceiptPrinter(_,ref) {
-  const [job,setJob] = useState<{order:ReceiptOrder;settings:ReceiptSettings}|null>(null)
+  const [job,setJob] = useState<{order:ReceiptOrder;settings:ReceiptSettings;qrSrc?:string}|null>(null)
   useImperativeHandle(ref,()=>({ print:async(order,settings)=>{
-    flushSync(()=>setJob({order,settings}))
+    const qrSrc = settings.show_qr && order.qr_url ? await plainReceiptQr(order.qr_url) : undefined
+    flushSync(()=>setJob({order,settings,qrSrc}))
     await document.fonts?.ready
     const area = document.getElementById('receipt-print-area')!
     await Promise.all(Array.from(area.querySelectorAll('img')).map((image)=>Promise.race([
@@ -17,6 +19,6 @@ const ReceiptPrinter = forwardRef<ReceiptPrinterHandle>(function ReceiptPrinter(
     await new Promise<void>((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))
     window.print()
   }}),[])
-  return job && createPortal(<div id="receipt-print-area"><style>{`@media print { @page { margin: 0; size: ${RECEIPT_PAPER_WIDTH}mm auto; } }`}</style><ThermalReceipt order={job.order} settings={job.settings}/></div>,document.body)
+  return job && createPortal(<div id="receipt-print-area"><style>{`@media print { @page { margin: 0; size: ${RECEIPT_PAPER_WIDTH}mm auto; } }`}</style><ThermalReceipt order={job.order} settings={job.settings} qrSrc={job.qrSrc}/></div>,document.body)
 })
 export default ReceiptPrinter

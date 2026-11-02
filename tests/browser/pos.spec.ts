@@ -1,5 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+const fixtureRequire = createRequire(path.join(process.cwd(), 'package.json'))
+const { QRCodeWriter, BarcodeFormat } = createRequire(fixtureRequire.resolve('@zxing/browser'))('@zxing/library')
 import {bankQr,receiptSettings} from '../../lib/receipts'
 
 const barcode = '0012345678901'
@@ -826,13 +829,18 @@ test('stocktake formatted bounded inputs and fixed footer fit narrow mobile scre
  }
 })
 
-for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${width} settings and shares Arial fonts, bold totals, solid headers and QR-only images in preview and print`,async({page})=>{
+for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${width} settings and shares Arial fonts, bold totals, solid headers and plain 19mm QR images in preview and print`,async({page})=>{
  await printSpy(page)
  const {results}=await fixture(page,{legacyQr:true,paperWidth:width as 58|80})
  const qrRequests:string[]=[]
+ const payload='00020101021238540010A00000072701240006970422011000123456780208QRIBFTTA53037045405350005802VN62120808HD01110016304ABCD'
+ const matrix=new QRCodeWriter().encode(payload,BarcodeFormat.QR_CODE,0,0,new Map())
+ let modules=''
+ for(let y=0;y<matrix.getHeight();y++)for(let x=0;x<matrix.getWidth();x++)if(matrix.get(x,y))modules+=`<rect x="${x}" y="${y}" width="1" height="1"/>`
+ const sourceSvg=`<svg xmlns="http://www.w3.org/2000/svg" width="490" height="490" viewBox="0 0 ${matrix.getWidth()} ${matrix.getHeight()}"><rect width="100%" height="100%" fill="white"/><g fill="black">${modules}</g><text x="50%" y="50%" font-size="2" fill="red">V</text></svg>`
  await page.route('https://img.vietqr.io/image/**',async route=>{
   qrRequests.push(route.request().url())
-  await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="490" height="490"><rect width="490" height="490" fill="white"/><rect x="40" y="40" width="410" height="410" fill="black"/></svg>'})
+  await route.fulfill({contentType:'image/svg+xml',headers:{'access-control-allow-origin':'*'},body:sourceSvg})
  })
  await designer(page)
  await expect(page.getByLabel('Khổ giấy',{exact:true})).toHaveCount(0)
@@ -856,15 +864,22 @@ for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${w
   const borders=await receipt.locator('thead').evaluate(el=>{const s=getComputedStyle(el);return [s.borderTopStyle,s.borderBottomStyle,s.borderTopWidth,s.borderBottomWidth,s.borderTopColor,s.borderBottomColor]})
   expect(borders).toEqual(['solid','solid','1px','1px','rgb(0, 0, 0)','rgb(0, 0, 0)'])
   const frame=receipt.locator('.receipt-qr-frame')
-  await expect(frame).toHaveText('');await expect(frame.locator('img')).toHaveCount(1)
-  expect(await frame.evaluate(el=>{const r=el.getBoundingClientRect();return Math.abs(r.width-r.height)<1&&getComputedStyle(el).overflow==='hidden'})).toBe(true)
+  await expect(frame.locator('img')).toHaveCount(1);await expect(frame).toHaveText('')
+  expect(await frame.evaluate(el=>{const r=el.getBoundingClientRect();return Math.abs(r.width-19*96/25.4)<1&&Math.abs(r.height-19*96/25.4)<1&&getComputedStyle(el).overflow==='hidden'})).toBe(true)
+  const src=await frame.locator('img').getAttribute('src')
+  expect(src).toMatch(/^data:image\/svg\+xml/)
+  const svg=decodeURIComponent(src!.split(',')[1])
+  expect(svg).not.toMatch(/<(?:text|image|foreignObject)\b/)
+  expect(svg).toContain('crispEdges')
   await expect(receipt.getByText('Quét mã chuyển khoản',{exact:true})).toHaveCount(0)
   expect(await receipt.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  }
  await checkDesign(preview)
  await expect(preview).toHaveAttribute('style',/80mm/)
  await preview.screenshot({path:test.info().outputPath(`receipt-preview-k${width}.png`)})
- await expect(preview.getByRole('img',{name:'QR chuyển khoản'})).toHaveAttribute('src',/-qr_only.png\?amount=65000/)
+ await page.addScriptTag({path:fixtureRequire.resolve('@zxing/browser/umd/zxing-browser.min.js')})
+ async function decodedQr(receipt:ReturnType<Page['locator']>){return receipt.locator('img.receipt-qr').evaluate(async img=>(await new (window as any).ZXingBrowser.BrowserQRCodeReader().decodeFromImageUrl((img as HTMLImageElement).src)).getText())}
+ expect(await decodedQr(preview)).toBe(payload)
  await page.getByRole('button',{name:'Lưu mẫu hóa đơn',exact:true}).click()
  await expect(page.getByRole('status').filter({hasText:'Đã lưu mẫu hóa đơn lên máy chủ'})).toBeVisible()
  await page.getByRole('button',{name:'POS',exact:true}).click()
@@ -882,10 +897,11 @@ for(const width of [58,80])test(`thermal receipt always uses K80 with saved K${w
  const printed=page.locator('#receipt-print-area article')
  await expect(printed).toBeVisible();await expect(page.locator('main')).toBeHidden()
  await checkDesign(printed)
- const qr=new URL(await printed.getByRole('img',{name:'QR chuyển khoản'}).getAttribute('src') as string)
- expect(qr.pathname).toBe('/image/MB-00123456-qr_only.png')
- expect(qr.searchParams.get('amount')).toBe('35000');expect(qr.searchParams.get('addInfo')).toBe(results[0].receipt_no)
- expect(qrRequests.every(url=>url.includes('-qr_only.png'))).toBe(true)
+ expect(await decodedQr(printed)).toBe(payload)
+ const qr=new URL(qrRequests.find(url=>new URL(url).searchParams.get('amount')==='35000')!)
+ expect(qr.pathname).toBe('/image/MB-00123456-qr_only.svg')
+ expect(qr.searchParams.get('addInfo')).toBe(results[0].receipt_no)
+ expect(qrRequests.every(url=>url.includes('-qr_only.svg'))).toBe(true)
  expect(await printed.getAttribute('style')).toContain('80mm')
  expect(await page.locator('#receipt-print-area style').textContent()).toContain('size: 80mm auto')
  await page.emulateMedia({media:'screen'})

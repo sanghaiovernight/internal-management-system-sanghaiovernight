@@ -1,14 +1,15 @@
 'use client'
 
-import { RECEIPT_PAPER_WIDTH, receiptQrUrl, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
+import { RECEIPT_PAPER_WIDTH, type ReceiptOrder, type ReceiptSettings } from '@/lib/receipts'
+import ReceiptQr from './receipt-qr'
 const money = (value: number) => value.toLocaleString('vi-VN')
-export default function ThermalReceipt({ order, settings }: { order: ReceiptOrder; settings: ReceiptSettings }) {
+export default function ThermalReceipt({ order, settings, qrSrc }: { order: ReceiptOrder; settings: ReceiptSettings; qrSrc?: string }) {
   return <article className="thermal-receipt" style={{width:`${RECEIPT_PAPER_WIDTH}mm`}} aria-label={`Hóa đơn ${order.receipt_no}`}>
     <header className="receipt-center"><h2 className="receipt-store font-bold">{settings.store_name}</h2>{settings.subtitle && <p>{settings.subtitle}</p>}{settings.address && <p>{settings.address}</p>}{settings.phone && <p>ĐT: {settings.phone}</p>}</header>
     <div className="receipt-rule receipt-center"><h3 className="font-bold">HÓA ĐƠN BÁN HÀNG</h3>{order.status==='voided'&&<p>ĐÃ HỦY</p>}{order.status==='refunded'&&<p>ĐÃ HOÀN TRẢ MỘT PHẦN / TOÀN BỘ</p>}<p>Mã bill: {order.receipt_no}</p><p>{new Date(order.created_at).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'})}</p><p>{order.payment_method}</p></div>
     <table className="receipt-lines"><colgroup><col style={{width:'40%'}}/><col style={{width:'10%'}}/><col style={{width:'23%'}}/><col style={{width:'27%'}}/></colgroup><thead className="font-bold"><tr><th className="font-bold">Tên món</th><th className="font-bold">SL</th><th className="font-bold">Đơn giá</th><th className="font-bold">Thành tiền</th></tr></thead><tbody>{order.items.map((item,index)=><tr key={`${item.id}-${index}`}><td>{item.name}{item.note && <small className="block">({item.note})</small>}</td><td>{item.quantity}</td><td>{item.price == null ? '—' : money(item.price)}</td><td>{item.price == null ? '—' : money(item.price*item.quantity)}</td></tr>)}</tbody></table>
     <div className="receipt-rule"><p className="receipt-pair font-bold"><span>Tạm tính</span><b>{money(order.subtotal)}đ</b></p><p className="receipt-pair font-bold"><span>Giảm giá</span><b>{money(order.discount)}đ</b></p><p className="receipt-pair receipt-total font-bold"><span>TỔNG CỘNG</span><b>{money(order.total)}đ</b></p></div>
-    {settings.show_qr && order.qr_url && <div className="receipt-rule receipt-center"><div className="receipt-qr-frame overflow-hidden"><img className="receipt-qr" src={receiptQrUrl(order.qr_url)} alt="QR chuyển khoản" /></div></div>}
+    {settings.show_qr && order.qr_url && <div className="receipt-rule receipt-center"><ReceiptQr url={order.qr_url} preparedSrc={qrSrc}/></div>}
     {(order.status==='refunded'||order.status==='voided')&&<p className="receipt-pair receipt-rule"><span>Đã hoàn trả</span><b>{money((order.original_total??order.total)-order.total)}đ</b></p>}
     <footer className="receipt-rule receipt-center">{settings.wifi_name && <p>Wifi: {settings.wifi_name}</p>}{settings.wifi_password && <p>Mật khẩu: {settings.wifi_password}</p>}<p className="receipt-thanks">{settings.footer}</p></footer>
   </article>
